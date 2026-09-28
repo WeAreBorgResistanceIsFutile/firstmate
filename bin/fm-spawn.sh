@@ -3569,6 +3569,7 @@ EOF
       exit 1
     fi
     T="$HERDR_SES:$HERDR_PANE_ID"
+    fm_backend_herdr_windows_shell_prepare "$T" || exit 1
     SES=$HERDR_SES
     WT_TARGET=$T
   fi
@@ -3755,6 +3756,7 @@ EOF
       exit 1
     fi
     T="$HERDR_SES:$HERDR_PANE_ID"
+    fm_backend_herdr_windows_shell_prepare "$T" || exit 1
     ;;
   zellij)
     ZELLIJ_SES=$(fm_backend_zellij_container_ensure) || exit 1

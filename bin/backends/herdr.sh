@@ -3052,10 +3052,67 @@ fm_backend_herdr_target_ready() {  # <target>
 # `.result.pane.foreground_cwd` tracks the ACTUALLY RUNNING foreground
 # process's cwd instead, which is what changes when `treehouse get` enters its
 # worktree subshell - confirmed live against a real treehouse acquisition.
+#
+# Nexon fork: on Windows `foreground_cwd` is always empty, and `.cwd` is the
+# one that moves - herdr updates it from OSC 9;9, which herdr-win-bashrc
+# emits at every prompt. It comes back as a Windows path, so convert it.
 fm_backend_herdr_current_path() {  # <target>
+  local out cwd
   fm_backend_herdr_target_ready "$1" || return 0
-  fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane get "$FM_BACKEND_HERDR_PANE" 2>/dev/null \
-    | jq -r '.result.pane.foreground_cwd // empty' 2>/dev/null
+  out=$(fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane get "$FM_BACKEND_HERDR_PANE" 2>/dev/null) || return 0
+  if ! fm_backend_herdr_is_windows; then
+    printf '%s' "$out" | jq -r '.result.pane.foreground_cwd // empty' 2>/dev/null
+    return 0
+  fi
+  cwd=$(printf '%s' "$out" | jq -r '.result.pane.foreground_cwd // "" | if . == "" then empty else . end' 2>/dev/null)
+  [ -n "$cwd" ] || cwd=$(printf '%s' "$out" | jq -r '.result.pane.cwd // empty' 2>/dev/null)
+  [ -n "$cwd" ] || return 0
+  cwd=$(cygpath -u "$cwd" 2>/dev/null) || return 0
+  [ "$cwd" = / ] || cwd=${cwd%/}
+  printf '%s\n' "$cwd"
+}
+
+# Nexon fork: Windows (Git Bash) support. Honors FM_HERDR_WINDOWS=1|0 as an
+# explicit override of the uname probe.
+fm_backend_herdr_is_windows() {
+  case "${FM_HERDR_WINDOWS:-}" in
+    1) return 0 ;;
+    0) return 1 ;;
+  esac
+  case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*) return 0 ;;
+  esac
+  return 1
+}
+
+# fm_backend_herdr_windows_shell_prepare: herdr's Windows build opens every
+# pane in PowerShell, while every later spawn send (cd, treehouse get, export,
+# `. launch-file`) is POSIX shell. On Windows, switch a freshly minted task
+# pane into Git Bash started with herdr-win-bashrc and wait for its ready
+# marker. A no-op everywhere else.
+# FM_HERDR_WIN_BASH overrides the bash.exe (Windows path); the default is Git
+# for Windows' bin\bash.exe launcher, which sets up the MSYS PATH.
+fm_backend_herdr_windows_shell_prepare() {  # <target>
+  local bash_win rc_win cmd timeout_ms=${FM_HERDR_WIN_SHELL_TIMEOUT_MS:-20000}
+  fm_backend_herdr_is_windows || return 0
+  fm_backend_herdr_target_ready "$1" || return 1
+  bash_win=${FM_HERDR_WIN_BASH:-$(cygpath -w / 2>/dev/null)\\bin\\bash.exe}
+  rc_win=$(cygpath -w "$FM_BACKEND_HERDR_ROOT/bin/backends/herdr-win-bashrc" 2>/dev/null) || {
+    echo "error: could not resolve herdr-win-bashrc as a Windows path" >&2
+    return 1
+  }
+  # PowerShell single-quoted literals escape ' as ''. Bash takes long options
+  # only before single-letter ones, so --rcfile must precede -i.
+  cmd="& '${bash_win//\'/\'\'}' --rcfile '${rc_win//\'/\'\'}' -i"
+  fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane run "$FM_BACKEND_HERDR_PANE" "$cmd" >/dev/null 2>&1 || {
+    echo "error: could not start Git Bash in herdr pane $FM_BACKEND_HERDR_PANE" >&2
+    return 1
+  }
+  fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane wait-output "$FM_BACKEND_HERDR_PANE" \
+    --match FM_HERDR_WIN_BASH_READY --timeout "$timeout_ms" >/dev/null 2>&1 || {
+    echo "error: Git Bash did not become ready in herdr pane $FM_BACKEND_HERDR_PANE within ${timeout_ms}ms" >&2
+    return 1
+  }
 }
 
 # fm_backend_herdr_send_text_line: send one line of TEXT then submit,
