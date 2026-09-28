@@ -1044,6 +1044,18 @@ This script never starts supervision itself.
 
 EOF
 fi
+# How the user wants to be addressed is their choice (AGENTS.md, top of file).
+# A secondmate home never speaks to the user in chat, so only a primary home is
+# reminded to ask.
+if [ ! -f "$DATA/charter.md" ] && ! grep -qE '^Form of address:[[:space:]]*[^[:space:]]' "$DATA/captain.md" 2>/dev/null; then
+  cat <<'EOF'
+Form of address: NOT RECORDED in data/captain.md. In your first reply, ask the
+user how they want to be addressed (a name, a title, or none) and record the
+answer there as one "Form of address: <how>" line; until then use no direct
+address.
+
+EOF
+fi
 cat <<'EOF'
 The digest above is complete for this session start. The READ-ONCE CONTRACT
 section near the top of it governs what may still be read from disk.
