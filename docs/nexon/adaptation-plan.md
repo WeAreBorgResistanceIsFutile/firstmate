@@ -99,9 +99,11 @@ without the worker changing anything.
    firstmate lock is a symlink, and MSYS's default `ln -s` copies instead;
    `bin/fm-wake-lib.sh` now exports `MSYS=winsymlinks:nativestrict`. Cost: each
    check takes about 1 s; the per-turn hooks that use this library pay it too.
-2. **Bootstrap for this machine.** Stop reporting `treehouse` and `no-mistakes`
-   as missing when workbench mode is configured (`bin/fm-bootstrap.sh`, the
-   `MISSING:` emitters).
+2. **Bootstrap for this machine.** *(Done 2026-09-28.)* `config/workspace` =
+   `workbench` (resolved by `bin/fm-workbench-lib.sh :: fm_workspace_mode`,
+   documented in `docs/configuration.md` "Workspace mode") drops `treehouse` and
+   `no-mistakes` from bootstrap's required tools; later steps use the same
+   switch for spawn and cleanup.
 3. **Upstream sync.** Merge the pending `upstream/main` commit.
 4. **Workbench discovery.** Workbenches come and go (`recruit-agent` can add a
    fifth), so there is no hand-kept list. `bin/fm-workbench.sh discover` builds

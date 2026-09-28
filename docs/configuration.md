@@ -8,7 +8,7 @@ Start with the directory layout, then use the setting reference for the behavior
 | What you want to configure | Start here |
 | --- | --- |
 | Firstmate's code, private files, or project location | [FM_HOME](#fm_home) and [operational home layout](#operational-home-layout-and-state) |
-| Task windows and worker tools | [Runtime backend](#runtime-backend-configbackend--fm_backend) and [harness support](#harness-support) |
+| Task windows and worker tools | [Runtime backend](#runtime-backend-configbackend--fm_backend), [workspace mode](#workspace-mode-configworkspace), and [harness support](#harness-support) |
 | Worker permissions, accounts, or environment | [Claude permission mode](#claude-permission-mode-configclaude-permission-mode), [worker account pin](#worker-account-pin-configclaude-account-configpi-account), and [worker launch environment](#worker-launch-environment-configlaunch-env-allowlist) |
 | Backlog, preferences, and memory | [Backlog backend](#backlog-backend-taskstoml--configbacklog-backend), [captain preferences](#captain-preferences-datacaptainmd--datacaptain-sharedmd), and [startup memory budget](#startup-memory-budget-configstartup-memory-budget) |
 | Supervision and presentation | [Pi supervision branch](#pi-supervision-branch), [supervision host](#supervision-host-configsupervision-host), and [Calm preference](#calm-preference-configcalm) |
@@ -612,6 +612,7 @@ Portable shard evidence and coverage rules are in [fm-test-portable-shards.md](f
 ## Captain Preferences (data/captain.md / data/captain-shared.md)
 
 Domain-local preferences for one captain's fleet live locally in each home's `data/captain.md`; it is gitignored and printed in the session-start context digest after `data/projects.md` and optional `data/secondmates.md`.
+It also holds the user's chosen form of address as one `Form of address: <how>` line, whose rule `AGENTS.md` owns at the top of the file.
 Before changing it, inspect the current file and curate the matching bullet in place under the internal [`stow` skill's](../.agents/skills/stow/SKILL.md) tiering and archive contract; add a new bullet only for a genuinely new durable preference.
 
 Shared captain preferences that apply across secondmate domains live only in the primary home's optional `data/captain-shared.md`.
@@ -792,6 +793,21 @@ Its `remove` action excises only the marker-delimited Firstmate region and remov
 For Pi and pi-signed secondmate launches, `fm-spawn.sh` starts the selected executable with `-e` pointed at the secondmate home's own tracked `.pi/extensions/fm-primary-pi-watch.ts` and `.pi/extensions/fm-primary-turnend-guard.ts`, both already present from the secondmate home's git worktree.
 
 For omp secondmate launches, `fm-spawn.sh` passes no `-e` at all: omp auto-discovers the home's tracked `.omp/extensions/` with no trust gate, and naming a discovered file with `-e` as well loads it twice; every omp launch instead carries the tracked `.omp/fm-worker-overlay.yml` posture overlay through `--config`, which [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns.
+
+## Workspace mode (config/workspace)
+
+The optional local, gitignored `config/workspace` selects where ship and scout workers do their work.
+The token is the file's whitespace-trimmed content.
+
+| Token | Workers work in |
+| --- | --- |
+| `treehouse` | a fresh Treehouse worktree per task (the absent-file default) |
+| `workbench` | a leased clone in a fixed workbench; Treehouse and no-mistakes are not used |
+
+In `workbench` mode, bootstrap drops `treehouse` and `no-mistakes` from the required tools.
+Any other value is reported by bootstrap as `CONFIG: config/workspace is invalid` and the default tool list stays.
+`bin/fm-workbench-lib.sh :: fm_workspace_mode` is the single resolver.
+The workbench spawn, lease, and cleanup behavior is being built on the Nexon fork and is described in [`docs/nexon/adaptation-plan.md`](nexon/adaptation-plan.md).
 
 ## Claude permission mode (config/claude-permission-mode)
 

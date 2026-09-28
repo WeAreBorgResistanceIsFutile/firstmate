@@ -183,7 +183,7 @@ L303  :killW3wp again (after IIS config, near end)
 
 - **TODO-001** — P1, `CONFIRMED`. Merge the 1 upstream commit (`git merge upstream/main`) and fix "Upstream sync" in the plan doc to DECISION-002. Push is **done**. DoD: `main` contains `upstream/main`, doc consistent, pushed (user runs push if the classifier blocks it).
 - **TODO-002** — **CANCELLED** (DECISION-009): the treehouse shim creating worktrees.
-- **TODO-003** — P1. Bootstrap stops reporting `treehouse`/`no-mistakes` MISSING. `bin/fm-bootstrap.sh` (`MISSING:` emitters). DoD: silent bootstrap on this machine.
+- **TODO-003** — **DONE**: `config/workspace` = `workbench` (`bin/fm-workbench-lib.sh :: fm_workspace_mode`; `docs/configuration.md` "Workspace mode") drops `treehouse`/`no-mistakes` from bootstrap; verified: bootstrap prints no MISSING line in workbench mode, the old two lines without the file, and `CONFIG: config/workspace is invalid` for a bad value. This home has `config/workspace` = `workbench`. `bin/fm-doc-audience-check.sh` not run (needs `python3`; the machine has only `python`).
 - **TODO-008** — **DONE** 2026-09-28: plan rewritten (IMP-003).
 - **TODO-009** — P0. Workbench worker mode (DECISION-020, DECISION-027, DECISION-028, DECISION-030) — plan Phase 1 steps 4–9 and Phase 2 steps 2–3: `bin/fm-workbench.sh discover` (from `applicationHost.config`, as `recruit-agent -ShowOccupancy` does; J via `Default Web Site`; new workbench used only after the captain confirms), per-repo `lease`/`release`/`status`, `prepare`/`restore`; project registry without clones; spawn takes its folder from the lease and skips `treehouse get`, pooled refresh, `spawn_worktree_isolated`, `freshen_spawn_worktree_base`; settings.local.json merge + restore; teardown keeps the branch and returns the clone to `EHR` (Nexon4) / `main` (others) with the Switch-Site bracket for Nexon4. Depends on RISK-001..003. DoD: TEST-GAP-002 on one workbench.
 - **TODO-010** — P1. Design the machine-wide lock mechanism (IMP-006): lock names `app:<name>` (one per external app), `webcompiler-first-build`, `host:8033`, `host:8001`, `host:odata`; storage visible to the first mate and all four workbench workers (e.g. files under `C:\Agents\locks\` with holder, PID, pane, timestamp — `INFERRED` proposal, not agreed); stale recovery (FLOW-005, RISK-012). No Nexon4 build lock (DECISION-026). Only firstmate-managed agents need to honour it (DECISION-019). DoD: TEST-GAP-004.
@@ -200,7 +200,7 @@ L303  :killW3wp again (after IIS config, near end)
 
 - **Read first:** this file §3.3; `C:\git\Nexon4\Switch-Site.ps1` (header); `C:\git\Nexon4\Build.cmd` L100–155 and `:killW3wp`/`:killCloneProcesses`; `C:\git\Nexon4\Tools\Stop-CloneProcesses.ps1` (header); `C:\git\claude-skills\plugins\nexon4-ops\skills\recruit-agent\MANUAL.md` §8 rules 1–9; `docs/nexon/adaptation-plan.md`; `bin/fm-spawn.sh` (search `treehouse get`, `spawn_worktree_isolated`, `reset --hard`, `settings.local.json`); `bin/fm-teardown.sh`.
 - **Check first:** `git status -sb`; `git rev-list --count main..upstream/main`; `git -C /c/AgentK/Nexon4 status --short | head` (expect the 11 Switch-Site configs dirty).
-- **Start with:** commit IMP-007, then TODO-014.
+- **Start with:** Phase 1 step 3 (merge `upstream/main`), then steps 4-9 (TODO-009) using `fm_workspace_mode` as the switch.
 - **Do not break:** INV-003, INV-004, INV-005, INV-007, INV-008, INV-010, INV-011, INV-012.
 - **Clarify before a bigger change:** RISK-004, TEST-GAP-005.
 - Note: this repo's `CLAUDE.md` → `AGENTS.md` loads the first-mate persona contract. An agent developing the fork is not the first mate; do not run `bin/fm-session-start.sh` (it runs read-only anyway from a hook, lock unverified). The contract's "captain" address in chat applies to any agent reading it.
@@ -284,4 +284,4 @@ L303  :killW3wp again (after IIS config, near end)
 - **Preserve:** INV-001, INV-002, INV-003, INV-004, INV-005, INV-006, INV-007, INV-008, INV-009, INV-010, INV-011, INV-012.
 - **Finish:** TODO-013 → TODO-001 → TODO-003 → Phase 1 rest (TODO-009 part 1) → TODO-011 → TODO-009 part 2 → TODO-010 → TODO-004 → TODO-005 → TODO-006 → TODO-007 → TODO-012.
 - **Investigate:** RISK-001, RISK-002, RISK-003, RISK-004, RISK-012, ASSUMPTION-005, TEST-GAP-005.
-- **Proposed first step:** Commit IMP-007 (`bin/fm-session-lock-lib.sh`, `bin/fm-wake-lib.sh`), then implement TODO-014 (user-chosen form of address, recorded in `data/captain.md`).
+- **Proposed first step:** `git fetch upstream && git merge upstream/main` on `main` (Phase 1 step 3), then start TODO-009 with `bin/fm-workbench-lib.sh` discovery.

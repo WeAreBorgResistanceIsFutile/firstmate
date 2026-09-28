@@ -169,6 +169,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 # shellcheck source=bin/fm-tasks-axi-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
+# shellcheck source=bin/fm-workbench-lib.sh disable=SC1091
+. "$SCRIPT_DIR/fm-workbench-lib.sh"
 # shellcheck source=bin/fm-backlog-transition-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
 # shellcheck source=bin/fm-quota-axi-lib.sh disable=SC1091
@@ -833,6 +835,28 @@ if ! BACKEND_TOOLS=$(fm_backend_required_tools "$BACKEND"); then
   BACKEND_TOOLS=""
 fi
 TOOLS="$BACKEND_TOOLS $COMMON_TOOLS"
+# A workbench fleet works in leased clones of fixed workbenches, so it needs
+# neither Treehouse worktrees nor the no-mistakes pipeline (docs/configuration.md
+# "Workspace mode"). An invalid value is reported and the full list stays.
+workbench_tool_list() {  # <tool-list>
+  local tool out=
+  for tool in $1; do
+    case "$tool" in
+      treehouse | no-mistakes) ;;
+      *) out="${out:+$out }$tool" ;;
+    esac
+  done
+  printf '%s\n' "$out"
+}
+if WORKSPACE_MODE=$(fm_workspace_mode "$CONFIG"); then
+  if [ "$WORKSPACE_MODE" = workbench ]; then
+    BACKEND_TOOLS=$(workbench_tool_list "$BACKEND_TOOLS")
+    COMMON_TOOLS=$(workbench_tool_list "$COMMON_TOOLS")
+    TOOLS="$BACKEND_TOOLS $COMMON_TOOLS"
+  fi
+else
+  echo "CONFIG: config/workspace is invalid; accepted values: treehouse, workbench"
+fi
 NO_MISTAKES_MIN=1.46.0
 # AXI-FAMILY FLOOR POLICY. Every axi-family floor is the CURRENT LATEST published
 # version of that tool, captain-bumped periodically to keep the whole fleet on the
