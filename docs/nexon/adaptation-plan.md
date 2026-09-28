@@ -105,7 +105,10 @@ without the worker changing anything.
    `no-mistakes` from bootstrap's required tools; later steps use the same
    switch for spawn and cleanup.
 3. **Upstream sync.** *(Done 2026-09-28: `upstream/main` merged at `de04757b`.)*
-4. **Workbench discovery.** Workbenches come and go (`recruit-agent` can add a
+4. **Workbench discovery.** *(Done 2026-09-28, except the session-start
+   refresh: `bin/fm-workbench.sh discover|list|confirm`,
+   `tests/fm-workbench-discover.test.sh`; on this machine it finds `git` (J),
+   `agentk`, `agento`, `agentm`.)* Workbenches come and go (`recruit-agent` can add a
    fifth), so there is no hand-kept list. `bin/fm-workbench.sh discover` builds
    the list from the same source `recruit-agent` uses — `applicationHost.config`
    → each Nexon4 application's `physicalPath` → its clone → the parent folder is

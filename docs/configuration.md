@@ -79,6 +79,7 @@ Each effective `FM_HOME` contains private operational directories.
 - Captain preferences and optional shared captain preferences.
 - Learnings, backlog, briefs, and scout reports.
 - Explicitly installed content-addressed extension packages under `data/extensions/packages/`.
+- In workbench mode, the captain-confirmed workbench ids in `data/workbenches-confirmed` (`bin/fm-workbench.sh`).
 
 `state/` holds runtime records:
 
@@ -91,6 +92,7 @@ Each effective `FM_HOME` contains private operational directories.
 - Private secondmate config-reread generations with their retry and quarantine state.
 - Per-task steering-inbox records under `state/<id>.inbox/` (`bin/fm-task-inbox-lib.sh`).
 - Parent-owned secondmate pending-reply records under `state/pending-replies/` (`bin/fm-pending-reply-lib.sh`).
+- In workbench mode, the discovered workbench pool cached in `state/workbenches` (`bin/fm-workbench.sh`).
 
 `config/` holds local gitignored operating choices, including explicit extension bindings under `config/extensions.d/`.
 
@@ -807,6 +809,8 @@ The token is the file's whitespace-trimmed content.
 In `workbench` mode, bootstrap drops `treehouse` and `no-mistakes` from the required tools.
 Any other value is reported by bootstrap as `CONFIG: config/workspace is invalid` and the default tool list stays.
 `bin/fm-workbench-lib.sh :: fm_workspace_mode` is the single resolver.
+`bin/fm-workbench.sh discover` builds the workbench pool from IIS's `applicationHost.config`: every application serving a `\Frontend\Source\Nexon.Web` folder of a git clone is one workbench, whose root is the clone's parent folder and whose id is that folder's lowercased name.
+A discovered workbench stays `new` until `bin/fm-workbench.sh confirm <id>` records the captain's confirmation.
 The workbench spawn, lease, and cleanup behavior is being built on the Nexon fork and is described in [`docs/nexon/adaptation-plan.md`](nexon/adaptation-plan.md).
 
 ## Claude permission mode (config/claude-permission-mode)
