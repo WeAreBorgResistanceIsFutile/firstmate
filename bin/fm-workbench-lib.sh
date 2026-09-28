@@ -168,3 +168,45 @@ fm_workbench_from_iis_rows() {
   done
   printf '%s' "$out"
 }
+
+# --- lease cleanliness ---------------------------------------------------------
+#
+# A workbench clone is leased only when it is clean, with one exception: a
+# Nexon4 clone carries the configs Switch-Site.ps1 rewrites from workbench.cmd,
+# which are modified in every served clone by design. The clone's own
+# Switch-Site.ps1 is the single list of them, so a change to that list needs no
+# change here. Only an unstaged modification of one of them is tolerated; a
+# staged one could be committed and is dirt like any other.
+
+# Print the repo-relative paths (forward slashes) Switch-Site.ps1 in clone $1
+# rewrites, or nothing when the clone has no Switch-Site.ps1.
+fm_workbench_switch_site_paths() {  # <posix-clone>
+  local script=$1/Switch-Site.ps1
+  [ -f "$script" ] || return 0
+  tr -d '\r' < "$script" \
+    | sed -n 's/^[[:space:]]*\[PSCustomObject\]@{[[:space:]]*Path[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+    | tr '\\' /
+}
+
+# Print one line per path that makes clone $1 unleasable, as `XY path`; print
+# nothing for a clean clone. Returns 1 when git cannot read the clone.
+fm_workbench_clone_dirt() {  # <posix-clone>
+  local clone=$1 tolerated status entry xy path skip=0
+  tolerated=$(fm_workbench_switch_site_paths "$clone")
+  # -z so a path with spaces arrives unquoted; the NULs become newlines inside
+  # the pipeline because a command substitution drops NUL bytes.
+  status=$(set -o pipefail; git -C "$clone" status --porcelain -z 2>/dev/null | tr '\0' '\n') || return 1
+  while IFS= read -r entry; do
+    if [ "$skip" = 1 ]; then skip=0; continue; fi
+    [ -n "$entry" ] || continue
+    xy=${entry:0:2}
+    path=${entry:3}
+    case "$xy" in R* | C*) skip=1 ;; esac
+    if [ "$xy" = ' M' ] && [ -n "$tolerated" ] && printf '%s\n' "$tolerated" | grep -qxF "$path"; then
+      continue
+    fi
+    printf '%s %s\n' "$xy" "$path"
+  done <<EOF2
+$status
+EOF2
+}

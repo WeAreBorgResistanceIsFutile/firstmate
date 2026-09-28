@@ -123,9 +123,12 @@ without the worker changing anything.
    Intake matches a request against that list; anything that needs reading code
    becomes a scout on a workbench. The worker start script takes its folder from
    the lease, not from `projects/`.
-6. **Per-repo lease** (`bin/fm-workbench.sh`): `lease <task> <repo> [<workbench>]`
+6. **Per-repo lease** *(Done 2026-09-28: `tests/fm-workbench-lease.test.sh`;
+   the tolerated configs are read from each clone's own `Switch-Site.ps1`,
+   12 today; a lease ends only by `release` — stale-lease detection is open.)*
+   (`bin/fm-workbench.sh`): `lease <task> <repo> [<workbench>]`
    picks a workbench whose `<root>\<repo>` exists, has no live lease and is clean
-   (beyond the 11 Switch-Site configs for Nexon4); writes
+   (beyond the Switch-Site configs for Nexon4); writes
    `state/workbench-<id>-<repo>.lease` (task, time) under a lock; a second repo
    for the same task leases the same workbench's clone; `release <task>`;
    `status`. If no workbench has a clone of `<repo>`, it stops and reports that

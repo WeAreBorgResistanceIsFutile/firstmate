@@ -92,7 +92,7 @@ Each effective `FM_HOME` contains private operational directories.
 - Private secondmate config-reread generations with their retry and quarantine state.
 - Per-task steering-inbox records under `state/<id>.inbox/` (`bin/fm-task-inbox-lib.sh`).
 - Parent-owned secondmate pending-reply records under `state/pending-replies/` (`bin/fm-pending-reply-lib.sh`).
-- In workbench mode, the discovered workbench pool cached in `state/workbenches` (`bin/fm-workbench.sh`).
+- In workbench mode, the discovered workbench pool cached in `state/workbenches` and per-repo-clone leases in `state/workbench-<id>-<repo>.lease` (`bin/fm-workbench.sh`).
 
 `config/` holds local gitignored operating choices, including explicit extension bindings under `config/extensions.d/`.
 
@@ -811,6 +811,7 @@ Any other value is reported by bootstrap as `CONFIG: config/workspace is invalid
 `bin/fm-workbench-lib.sh :: fm_workspace_mode` is the single resolver.
 `bin/fm-workbench.sh discover` builds the workbench pool from IIS's `applicationHost.config`: every application serving a `\Frontend\Source\Nexon.Web` folder of a git clone is one workbench, whose root is the clone's parent folder and whose id is that folder's lowercased name.
 A discovered workbench stays `new` until `bin/fm-workbench.sh confirm <id>` records the captain's confirmation.
+`bin/fm-workbench.sh lease <task> <repo> [<workbench>]` leases one confirmed workbench's `<root>\<repo>` clone to a task; the script header owns the cleanliness rule, the one-workbench-per-task rule, and the exit codes.
 The workbench spawn, lease, and cleanup behavior is being built on the Nexon fork and is described in [`docs/nexon/adaptation-plan.md`](nexon/adaptation-plan.md).
 
 ## Claude permission mode (config/claude-permission-mode)
