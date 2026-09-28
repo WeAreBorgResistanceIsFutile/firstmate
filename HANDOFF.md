@@ -181,7 +181,7 @@ L303  :killW3wp again (after IIS config, near end)
 
 ## 8. Unfinished work
 
-- **TODO-001** — P1, `CONFIRMED`. Merge the 1 upstream commit (`git merge upstream/main`) and fix "Upstream sync" in the plan doc to DECISION-002. Push is **done**. DoD: `main` contains `upstream/main`, doc consistent, pushed (user runs push if the classifier blocks it).
+- **TODO-001** — **DONE**: `main` pushed; `upstream/main` merged at `de04757b` (2 upstream commits: #6002, #6010); "Upstream sync" section of the plan follows DECISION-002.
 - **TODO-002** — **CANCELLED** (DECISION-009): the treehouse shim creating worktrees.
 - **TODO-003** — **DONE**: `config/workspace` = `workbench` (`bin/fm-workbench-lib.sh :: fm_workspace_mode`; `docs/configuration.md` "Workspace mode") drops `treehouse`/`no-mistakes` from bootstrap; verified: bootstrap prints no MISSING line in workbench mode, the old two lines without the file, and `CONFIG: config/workspace is invalid` for a bad value. This home has `config/workspace` = `workbench`. `bin/fm-doc-audience-check.sh` not run (needs `python3`; the machine has only `python`).
 - **TODO-008** — **DONE** 2026-09-28: plan rewritten (IMP-003).
@@ -200,7 +200,7 @@ L303  :killW3wp again (after IIS config, near end)
 
 - **Read first:** this file §3.3; `C:\git\Nexon4\Switch-Site.ps1` (header); `C:\git\Nexon4\Build.cmd` L100–155 and `:killW3wp`/`:killCloneProcesses`; `C:\git\Nexon4\Tools\Stop-CloneProcesses.ps1` (header); `C:\git\claude-skills\plugins\nexon4-ops\skills\recruit-agent\MANUAL.md` §8 rules 1–9; `docs/nexon/adaptation-plan.md`; `bin/fm-spawn.sh` (search `treehouse get`, `spawn_worktree_isolated`, `reset --hard`, `settings.local.json`); `bin/fm-teardown.sh`.
 - **Check first:** `git status -sb`; `git rev-list --count main..upstream/main`; `git -C /c/AgentK/Nexon4 status --short | head` (expect the 11 Switch-Site configs dirty).
-- **Start with:** Phase 1 step 3 (merge `upstream/main`), then steps 4-9 (TODO-009) using `fm_workspace_mode` as the switch.
+- **Start with:** TODO-009 (Phase 1 steps 4-9), using `fm_workspace_mode` as the switch.
 - **Do not break:** INV-003, INV-004, INV-005, INV-007, INV-008, INV-010, INV-011, INV-012.
 - **Clarify before a bigger change:** RISK-004, TEST-GAP-005.
 - Note: this repo's `CLAUDE.md` → `AGENTS.md` loads the first-mate persona contract. An agent developing the fork is not the first mate; do not run `bin/fm-session-start.sh` (it runs read-only anyway from a hook, lock unverified). The contract's "captain" address in chat applies to any agent reading it.
@@ -284,4 +284,4 @@ L303  :killW3wp again (after IIS config, near end)
 - **Preserve:** INV-001, INV-002, INV-003, INV-004, INV-005, INV-006, INV-007, INV-008, INV-009, INV-010, INV-011, INV-012.
 - **Finish:** TODO-013 → TODO-001 → TODO-003 → Phase 1 rest (TODO-009 part 1) → TODO-011 → TODO-009 part 2 → TODO-010 → TODO-004 → TODO-005 → TODO-006 → TODO-007 → TODO-012.
 - **Investigate:** RISK-001, RISK-002, RISK-003, RISK-004, RISK-012, ASSUMPTION-005, TEST-GAP-005.
-- **Proposed first step:** `git fetch upstream && git merge upstream/main` on `main` (Phase 1 step 3), then start TODO-009 with `bin/fm-workbench-lib.sh` discovery.
+- **Proposed first step:** Start TODO-009 with `bin/fm-workbench-lib.sh` workbench discovery from `applicationHost.config` (Phase 1 step 4), with a unit test under `tests/`.
