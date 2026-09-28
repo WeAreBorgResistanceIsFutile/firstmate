@@ -156,6 +156,7 @@ L303  :killW3wp again (after IIS config, near end)
 - **TEST-GAP-004** — lock contention: two agents requesting the same app lock; stale-lock recovery after a crashed holder (FLOW-005). integration. INV-009, IMP-006.
 - **TEST-GAP-005** — run a Nexon4 `Build.cmd` in one workbench while an external app (started from another workbench's clone) and another workbench's Nexon4 dev hosts run; confirm all survive. system/manual. DECISION-026 depends on it.
 - **TEST-GAP-006** — Windows branch of `bin/fm-session-lock-lib.sh` has no automated test: add a unit case with a fake `powershell.exe` on PATH and `FM_PROC_WINDOWS=1` (rows for a bash → bash → claude chain, a dead pid, a non-harness pid). unit. IMP-007.
+- **TEST-GAP-007** — `bin/fm-session-start.sh` form-of-address reminder: printed when `data/captain.md` lacks a non-empty `Form of address:` line in a primary home; absent when recorded or in a secondmate home (`data/charter.md`). Extend `tests/fm-session-start.test.sh`. unit. TODO-014.
 
 ## 7. Problems, risks, uncertainties
 
