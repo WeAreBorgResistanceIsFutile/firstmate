@@ -12,7 +12,7 @@
 | Upstream drift | `upstream/main` has 1 commit not merged into `main` |
 | Other branch | `nexon` @ `5d20cc09` (pushed) — superseded by `main`, deletable |
 | Untracked | this `HANDOFF.md` |
-| Generated | 2026-09-28 (seventh revision — firstmate keeps no project clones, per-repo leases, clone-on-approval, discovered workbench set: DECISION-027..030) |
+| Generated | 2026-09-28 (eighth revision — session lock fixed on Windows (IMP-007, uncommitted); user-chosen form of address TODO-014) |
 | Affected subsystems | herdr runtime backend, spawn, teardown, fork docs; planned: workbench leasing + machine-wide resource locks |
 | Overall implementation status | `EXPERIMENTAL` — herdr-on-Windows runtime patch only; the workspace/lock design is agreed in conversation but **not written into the plan doc and not implemented** |
 
@@ -28,7 +28,7 @@
 8. **Key invariant:** never commit the 11 Switch-Site configs; never touch `workbench.cmd`; never touch `Default Web Site` config.
 9. **Biggest risk:** upstream spawn/teardown are built around disposable worktrees (`git reset --hard`, `branch -D`, `treehouse return`, overwrite/`rm` of `.claude/settings.local.json`) — all wrong for a permanent workbench (RISK-001..003).
 10. **Biggest uncertainty:** RISK-004 (Windows agent liveness in herdr); TEST-GAP-005 must confirm live that a Nexon4 `Build.cmd` run leaves external app processes alive.
-11. **First step:** TODO-013 (session lock on Windows) — without it the first mate is permanently read-only; then the rest of Phase 1 in `docs/nexon/adaptation-plan.md`.
+11. **First step:** commit IMP-007 (session lock), then TODO-014 (form of address) and the rest of Phase 1 in `docs/nexon/adaptation-plan.md`.
 
 ## 2. Task definition
 
@@ -133,6 +133,11 @@ L303  :killW3wp again (after IIS config, near end)
 - **IMP-004 — Tooling.** `COMPLETE`. `jq` 1.8.2; Volta npm globals `tasks-axi` 0.2.6, `quota-axi` 0.1.55, `gh-axi` 0.1.35, `chrome-devtools-axi` 0.1.35, `lavish-axi` 0.1.79; `gh` logged in. No `setup hooks`.
 - **IMP-005 — workbench workspace provider.** `PLACEHOLDER`. The old plan (treehouse shim creating worktrees) is **cancelled** (DECISION-009). Replacement design not started.
 - **IMP-006 — resource lock mechanism.** `PLACEHOLDER`. Only the requirements exist (§3.3).
+- **IMP-007 — Session lock on Windows.** `COMPLETE` (live-verified, **uncommitted** at this revision). Two causes, two fixes:
+  1. `bin/fm-session-lock-lib.sh`: new `fm_proc_is_windows` (uname `MINGW*|MSYS*|CYGWIN*`, override `FM_PROC_WINDOWS=1|0`), `_fm_proc_windows_start_pid` (outermost MSYS ancestor via `/proc/<pid>/ppid`, then its `/proc/<pid>/winpid` — a native walk from `$$` dead-ends at exited MSYS fork stand-ins), `_fm_proc_windows_rows chain|pid` (one Windows PowerShell `Win32_Process` table read, script kept single-line and single-quoted because MSYS mangles embedded `\"`), `_fm_proc_windows_harness_alive`, `_fm_harness_ancestry_pids_windows`. Windows branches added to `fm_harness_ancestry_pids`, `fm_harness_pid_alive`, `fm_session_lock_trusted_session_id`, `fm_session_lock_inspect`; POSIX lines untouched (INV-001).
+  2. `bin/fm-wake-lib.sh`: every lock is `ln -s <owner-dir> <lock>`; MSYS's default `ln -s` deep-copies, so the lock looked ownerless and `fm_lock_acquire_wait` spun forever. On `MINGW*|MSYS*` the lib exports `MSYS=winsymlinks:nativestrict` unless a `winsymlinks:` mode is already set (native symlinks work on this machine without Developer Mode).
+  Evidence: `bin/fm-lock.sh` → \"lock acquired: harness pid 33620\" (this session's `claude.exe`, == `CLAUDE_PID`), repeat acquisitions confirm, `status` → held, no leftover owner dirs. `tests/fm-session-lock-ancestry.test.sh` with `FM_PROC_WINDOWS=0 MSYS=winsymlinks:nativestrict`: unit layer 7 ok; the end-to-end layer (\"the fixture hook never finished\") needs real POSIX `ps -o` process trees and cannot run under Git Bash — TEST-GAP-006. Cost: ~0.8 s per native query, ~3–12 s per full ownership check (RISK-016).
+  Incident during verification: the first, hung `fm-lock.sh` survived `TaskStop` of its parent shell and kept recreating copied lock dirs with old code until killed (`taskkill`). Leftover copied dirs from before the fix may still exist in `state/` (e.g. `.turnend-claude-blocks.lock`, `.steal`, from the Stop hook at 17:19/17:29); the fixed code reclaims dead-owner dirs on next use, as it did for `.lock.acquire`.
 
 ## 5. Important runtime scenarios (target behaviour, none implemented)
 
@@ -150,6 +155,7 @@ L303  :killW3wp again (after IIS config, near end)
 - **TEST-GAP-003** — FLOW-004 orphan tab cleanup. integration.
 - **TEST-GAP-004** — lock contention: two agents requesting the same app lock; stale-lock recovery after a crashed holder (FLOW-005). integration. INV-009, IMP-006.
 - **TEST-GAP-005** — run a Nexon4 `Build.cmd` in one workbench while an external app (started from another workbench's clone) and another workbench's Nexon4 dev hosts run; confirm all survive. system/manual. DECISION-026 depends on it.
+- **TEST-GAP-006** — Windows branch of `bin/fm-session-lock-lib.sh` has no automated test: add a unit case with a fake `powershell.exe` on PATH and `FM_PROC_WINDOWS=1` (rows for a bash → bash → claude chain, a dead pid, a non-harness pid). unit. IMP-007.
 
 ## 7. Problems, risks, uncertainties
 
@@ -168,7 +174,9 @@ L303  :killW3wp again (after IIS config, near end)
 | RISK-011 | LOW | TECH_DEBT | external repo clones | Today all workbenches share `C:\git\<app>`; the `recruit-agent` skill documents them as shared, not cloned | `recruit-agent/MANUAL.md` rule 5; no `NEXON_*_ROOT` in any `workbench.cmd` | Until TODO-011 is done, two workbenches touching the same external repo clobber each other | TODO-011; propose a `recruit-agent` update to the user (claude-skills repo — not edited by this work) |
 | RISK-012 | LOW | DESIGN_RISK | lock hygiene | A crashed lock holder leaves an app lock held | FLOW-005 | App blocked for all workbenches | Stale detection by holder PID / pane liveness (TODO-010) |
 | RISK-013 | LOW | DESIGN_RISK | WebCompiler | Shared `%TEMP%` WebCompiler cache: two first (Full) builds at once break | `recruit-agent/MANUAL.md` rule 6 | Flaky `.less` build failures | Serialise Full Nexon4 builds or give the claim a Full-build variant |
-| RISK-015 | CRITICAL | BUG | session lock | On Windows the session lock fails: \"error: cannot locate harness process in ancestry\"; every session is read-only (no spawn, steer, merge, wake drain) | session-start digest of this session; `bin/fm-lock.sh` L58 → `bin/fm-session-lock-lib.sh :: fm_session_lock_anchor_pid` / `fm_harness_ancestry_pids`; Git Bash's process view cannot see the native `claude.exe` parent (`INFERRED`) | The first mate cannot operate at all | TODO-013 |
+| RISK-015 | — | BUG | session lock | **Fixed** by IMP-007 (uncommitted): the Windows session lock failed with \"cannot locate harness process in ancestry\", then hung on copied symlinks | IMP-007 | — | commit IMP-007 |
+| RISK-016 | MEDIUM | PERFORMANCE | session lock on Windows | Each native process query costs ~0.8 s (Windows PowerShell start + CIM); one ownership check runs several; the Stop/turn-end hooks (`fm-claude-stop-autoarm.sh`, `fm-turnend-guard.sh`) source the same library every turn | IMP-007 timings | Seconds of latency per turn end | Cache the ancestry rows per process tree, or a small native helper; measure first |
+| RISK-017 | MEDIUM | UNKNOWN | other POSIX process calls | 33 `ps -o` calls across `bin/*.sh` beyond the session lock (watcher, spawn, agent-process lib) still use MSYS `ps`, which has no `-o` | `grep -rn 'ps -o' bin/*.sh` | Silent failures in liveness/supervision | Record during the Phase 1 smoke test; reuse IMP-007's helpers |
 
 ## 8. Unfinished work
 
@@ -180,7 +188,8 @@ L303  :killW3wp again (after IIS config, near end)
 - **TODO-010** — P1. Design the machine-wide lock mechanism (IMP-006): lock names `app:<name>` (one per external app), `webcompiler-first-build`, `host:8033`, `host:8001`, `host:odata`; storage visible to the first mate and all four workbench workers (e.g. files under `C:\Agents\locks\` with holder, PID, pane, timestamp — `INFERRED` proposal, not agreed); stale recovery (FLOW-005, RISK-012). No Nexon4 build lock (DECISION-026). Only firstmate-managed agents need to honour it (DECISION-019). DoD: TEST-GAP-004.
 - **TODO-011** — P1. `bin/fm-workbench.sh clone <workbench> <repo> <origin>` (plan Phase 2 step 1), run only on the captain's word (INV-012). First use: give K, O, M their own `EgBiztEllat`, `Berszamfejtes`, `MappingEngine`; the `NEXON_*_ROOT` lines in their `workbench.cmd` are a captain step (INV-003). Also the entry point for research on a brand-new repo. DoD: `restart-dev-hosts.ps1` in K reports the roots from `..\workbench.cmd`.
 - **TODO-012** — P3, `CONFIRMED` (user: \"make a note to change recruit-agent skill later\"). Update the `recruit-agent` skill (`C:\git\claude-skills\plugins\nexon4-ops\skills\recruit-agent\` — `SKILL.md`, `MANUAL.md` rule 5, `scripts/New-AgentWorkbench.ps1`) so a new workbench gets its **own** clones of `EgBiztEllat`, `Berszamfejtes`, `MappingEngine` and `workbench.cmd` gets the `NEXON_*_ROOT` values; a recruited workbench is then found by firstmate's discovery (DECISION-030). That repo is the company marketplace — change it through its own PR, not by editing the local clone in place. Not now.
-- **TODO-013** — P0. Session lock on Windows (RISK-015): a Windows harness-ancestry resolver (native parent chain via PowerShell/CIM) behind the `MINGW*|MSYS*` gate. DoD: `bin/fm-session-start.sh` reports the lock held from a Claude session in herdr on this machine. Plan: Phase 1 step 1.
+- **TODO-013** — **DONE** (IMP-007), pending commit.
+- **TODO-014** — P1, `CONFIRMED` (user: \"stop calling me captain\", \"ask the user at setup how to call her/him\"). `AGENTS.md` hard-codes \"captain\" as the mandatory chat address (L8–17). Make it the user's choice: when `data/captain.md` has no form of address, the first mate asks at session start and records it there; `AGENTS.md` refers to that record, fallback no title. Shared tracked material — change directly only while the fleet is empty, and keep \"captain\" as the internal role word. Plan: Phase 1 step 10.
 - **TODO-004** — P1. Register a first project and run a smoke task on **one workbench** (not MappingEngine worktree mode — MappingEngine is itself a shared external repo, RISK-011). DoD: FLOW-001 completes; Windows failures recorded (RISK-004/006).
 - **TODO-005** — P2. Remaining workbench details: `config/claude-permission-mode=auto` (RISK-005); refuse to lease a dirty workbench.
 - **TODO-006** — P2. Phase 3 ADO forge (`bin/fm-pr-lib.sh :: fm_pr_url_parse` ADO pattern, record reader, poll/merge arms, bootstrap `gh` exemption). QUESTION-003.
@@ -190,7 +199,7 @@ L303  :killW3wp again (after IIS config, near end)
 
 - **Read first:** this file §3.3; `C:\git\Nexon4\Switch-Site.ps1` (header); `C:\git\Nexon4\Build.cmd` L100–155 and `:killW3wp`/`:killCloneProcesses`; `C:\git\Nexon4\Tools\Stop-CloneProcesses.ps1` (header); `C:\git\claude-skills\plugins\nexon4-ops\skills\recruit-agent\MANUAL.md` §8 rules 1–9; `docs/nexon/adaptation-plan.md`; `bin/fm-spawn.sh` (search `treehouse get`, `spawn_worktree_isolated`, `reset --hard`, `settings.local.json`); `bin/fm-teardown.sh`.
 - **Check first:** `git status -sb`; `git rev-list --count main..upstream/main`; `git -C /c/AgentK/Nexon4 status --short | head` (expect the 11 Switch-Site configs dirty).
-- **Start with:** TODO-013.
+- **Start with:** commit IMP-007, then TODO-014.
 - **Do not break:** INV-003, INV-004, INV-005, INV-007, INV-008, INV-010, INV-011, INV-012.
 - **Clarify before a bigger change:** RISK-004, TEST-GAP-005.
 - Note: this repo's `CLAUDE.md` → `AGENTS.md` loads the first-mate persona contract. An agent developing the fork is not the first mate; do not run `bin/fm-session-start.sh` (it runs read-only anyway from a hook, lock unverified). The contract's "captain" address in chat applies to any agent reading it.
@@ -256,6 +265,7 @@ L303  :killW3wp again (after IIS config, near end)
 - **DECISION-028** — Leases are **per repo clone** (`<workbench>\<repo>`), not per workbench. User: \"per repo, a Nexon4 project rarely modifies external repos\". A task needing a second repo leases that clone in the same workbench. `CONFIRMED`.
 - **DECISION-029** — Cloning a repo into a workbench for the first time needs the captain's word each time (user: \"ask\"). Research on a brand-new repo is supported this way. `CONFIRMED`.
 - **DECISION-030** — The workbench set is not fixed: the captain can recruit a 5th with the `recruit-agent` skill. Firstmate discovers workbenches from `applicationHost.config` (the source `recruit-agent -ShowOccupancy` reads without elevation; J through `Default Web Site`, never a `workbench.cmd` scan) and uses a new one only after the captain confirms. `CONFIRMED` requirement (user); discovery mechanism `INFERRED` design.
+- **DECISION-031** — The user is not addressed as \"captain\" (user, 2026-09-28); how to address them is asked at setup (TODO-014). Overrides AGENTS.md's address rule under its captain-instruction precedence. `CONFIRMED`.
 
 ## 13. Questions for the user
 
@@ -273,4 +283,4 @@ L303  :killW3wp again (after IIS config, near end)
 - **Preserve:** INV-001, INV-002, INV-003, INV-004, INV-005, INV-006, INV-007, INV-008, INV-009, INV-010, INV-011, INV-012.
 - **Finish:** TODO-013 → TODO-001 → TODO-003 → Phase 1 rest (TODO-009 part 1) → TODO-011 → TODO-009 part 2 → TODO-010 → TODO-004 → TODO-005 → TODO-006 → TODO-007 → TODO-012.
 - **Investigate:** RISK-001, RISK-002, RISK-003, RISK-004, RISK-012, ASSUMPTION-005, TEST-GAP-005.
-- **Proposed first step:** Implement TODO-013: reproduce \"cannot locate harness process in ancestry\" with `bin/fm-lock.sh`, then add a Windows branch to `fm_harness_ancestry_pids` in `bin/fm-session-lock-lib.sh` that walks the native parent-process chain.
+- **Proposed first step:** Commit IMP-007 (`bin/fm-session-lock-lib.sh`, `bin/fm-wake-lib.sh`), then implement TODO-014 (user-chosen form of address, recorded in `data/captain.md`).

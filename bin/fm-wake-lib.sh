@@ -16,6 +16,19 @@ FM_LOCK_STALE_AFTER="${FM_LOCK_STALE_AFTER:-2}"
 # confirm and 0.5s attach polls, and forking uname per call is a measurable cost on
 # the platform (Git Bash/MSYS) that already pays the highest fork price.
 _FM_UNAME=$(uname 2>/dev/null || echo unknown)
+# Every lock below is a symlink to its owner directory. MSYS's default `ln -s`
+# silently deep-copies the target instead, so a new lock looked ownerless and
+# its acquirer spun forever. Ask for native symlinks, strictly: where Windows
+# refuses to create one, `ln -s` fails and the lock refuses instead of copying.
+# A caller that already chose a winsymlinks mode keeps it.
+case "$_FM_UNAME" in
+  MINGW* | MSYS*)
+    case " ${MSYS:-} " in
+      *' winsymlinks:'*) ;;
+      *) export MSYS="${MSYS:+$MSYS }winsymlinks:nativestrict" ;;
+    esac
+    ;;
+esac
 mkdir -p "$STATE"
 
 # Most wake-library consumers need only queue and lock primitives, including

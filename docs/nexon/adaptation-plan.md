@@ -89,12 +89,16 @@ Goal: the first mate runs in a herdr pane on Windows, holds its session lock, an
 can put a worker on workbench M, supervise it to completion and clean up —
 without the worker changing anything.
 
-1. **Session lock on Windows.** Today the lock fails with "cannot locate harness
-   process in ancestry" (`bin/fm-lock.sh` → `bin/fm-session-lock-lib.sh ::
-   fm_session_lock_anchor_pid`), which leaves the first mate permanently
-   read-only. Git Bash's process view cannot see the native `claude.exe`
-   ancestor. Fix: a Windows ancestry resolver (native process parent chain via
-   PowerShell/CIM), behind the same `MINGW*|MSYS*` gate as the herdr patch.
+1. **Session lock on Windows.** *(Done 2026-09-28, not yet merged.)* The lock
+   failed with "cannot locate harness process in ancestry", leaving the first
+   mate permanently read-only: Git Bash's `ps` has no `-o`, and the native
+   `claude.exe` is not an MSYS process. `bin/fm-session-lock-lib.sh` now reads
+   native Windows pids from `Win32_Process` (one Windows PowerShell query per
+   question, starting from the outermost MSYS ancestor because MSYS fork/exec
+   leaves exited stand-ins in the native chain). Acquiring then hung: every
+   firstmate lock is a symlink, and MSYS's default `ln -s` copies instead;
+   `bin/fm-wake-lib.sh` now exports `MSYS=winsymlinks:nativestrict`. Cost: each
+   check takes about 1 s; the per-turn hooks that use this library pay it too.
 2. **Bootstrap for this machine.** Stop reporting `treehouse` and `no-mistakes`
    as missing when workbench mode is configured (`bin/fm-bootstrap.sh`, the
    `MISSING:` emitters).
@@ -132,9 +136,16 @@ without the worker changing anything.
 9. **Cleanup in workbench mode** (`bin/fm-teardown.sh`): no `checkout --detach`,
    no `branch -D`, no `treehouse return`; release the lease; restore the hooks
    file.
-10. **Permissions.** `config/claude-permission-mode` = `auto` (upstream defaults
+10. **Form of address chosen by the user.** `AGENTS.md` hard-codes "captain" as
+    the mandatory chat address. Replace that with the user's own choice: at
+    setup (a session start whose `data/captain.md` has no form of address yet)
+    the first mate asks how the user wants to be addressed — a name, a title,
+    or none — and records the answer in `data/captain.md`; `AGENTS.md` then says
+    "address the user the way `data/captain.md` records", with no title as the
+    fallback. "Captain" stays as the internal role word in the docs.
+11. **Permissions.** `config/claude-permission-mode` = `auto` (upstream defaults
     workers to `--dangerously-skip-permissions`).
-11. **Smoke test.** A scout-style task on M ("summarise how X works"): no commit,
+12. **Smoke test.** A scout-style task on M ("summarise how X works"): no commit,
     no build. Record every Windows failure: agent liveness through herdr (only
     the root PowerShell is visible to `pane process-info`), `stat -c %a`, `ps
     -o`, `mkfifo` users (`bin/fm-pr-lib.sh`, `bin/fm-watch.sh`,
