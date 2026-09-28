@@ -3088,7 +3088,7 @@ fm_backend_herdr_is_windows() {
 # fm_backend_herdr_windows_shell_prepare: herdr's Windows build opens every
 # pane in PowerShell, while every later spawn send (cd, treehouse get, export,
 # `. launch-file`) is POSIX shell. On Windows, switch a freshly minted task
-# pane into Git Bash started with herdr-win-bashrc and wait for its ready
+# pane into Git Bash started with herdr-win-bashrc.sh and wait for its ready
 # marker. A no-op everywhere else.
 # FM_HERDR_WIN_BASH overrides the bash.exe (Windows path); the default is Git
 # for Windows' bin\bash.exe launcher, which sets up the MSYS PATH.
@@ -3097,8 +3097,8 @@ fm_backend_herdr_windows_shell_prepare() {  # <target>
   fm_backend_herdr_is_windows || return 0
   fm_backend_herdr_target_ready "$1" || return 1
   bash_win=${FM_HERDR_WIN_BASH:-$(cygpath -w / 2>/dev/null)\\bin\\bash.exe}
-  rc_win=$(cygpath -w "$FM_BACKEND_HERDR_ROOT/bin/backends/herdr-win-bashrc" 2>/dev/null) || {
-    echo "error: could not resolve herdr-win-bashrc as a Windows path" >&2
+  rc_win=$(cygpath -w "$FM_BACKEND_HERDR_ROOT/bin/backends/herdr-win-bashrc.sh" 2>/dev/null) || {
+    echo "error: could not resolve herdr-win-bashrc.sh as a Windows path" >&2
     return 1
   }
   # PowerShell single-quoted literals escape ' as ''. Bash takes long options
