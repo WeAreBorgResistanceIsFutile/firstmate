@@ -63,7 +63,7 @@ make_home() {  # <dir> <id>...
     mkdir -p "$dir/wb/$id"
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$(winpath "$dir/wb/$id")" "$(winpath "$dir/wb/$id/Nexon4")" \
       "site-$id" "http://$id.localhost" - >> "$dir/state/workbenches"
-    case " ${UNCONFIRMED:-} " in *" $id "*) ;; *) printf '%s\n' "$id" >> "$dir/data/workbenches-confirmed" ;; esac
+    case " ${UNCONFIRMED:-} " in *" $id "*) ;; *) printf '%s\t%s\n' "$id" "$(winpath "$dir/wb/$id")" >> "$dir/data/workbenches-confirmed" ;; esac
   done
 }
 
@@ -87,8 +87,8 @@ test_each_clone_is_leased_to_one_task() {
   assert_contains "$(cat "$dir/locks/wa-nexon4.lease")" "home=$(cd "$dir/state" && pwd -P)" "the lease names its home"
   out=$(run_in "$dir" lease t1 nexon4) || fail "a repeat lease failed"
   assert_contains "$out" "leased: wa" "a repeat lease prints the existing lease"
-  out=$(run_in "$dir" lease t2 Nexon4) || fail "the second task found no clone"
-  assert_contains "$out" "leased: wb Nexon4" "a second task gets the other workbench"
+  out=$(run_in "$dir" lease t2 nexon4) || fail "the second task found no clone"
+  assert_contains "$out" "leased: wb Nexon4 " "a second task gets the other workbench, under the folder's own spelling"
   out=$(run_in "$dir" lease t3 Nexon4 2>&1) || rc=$?
   assert_equals "$rc" 4 "a third task finds every clone busy"
   assert_contains "$out" "wa: leased by task t1" "the busy reason names the holder"
@@ -220,6 +220,7 @@ test_leases_are_shared_by_every_home() {
   make_home "$TMP_ROOT/home-b" wa
   rm -rf "$TMP_ROOT/home-b/wb"
   cp "$TMP_ROOT/home-a/state/workbenches" "$TMP_ROOT/home-b/state/workbenches"
+  cp "$TMP_ROOT/home-a/data/workbenches-confirmed" "$TMP_ROOT/home-b/data/workbenches-confirmed"
   LEASES=$shared run_in "$TMP_ROOT/home-a" lease t1 Nexon4 >/dev/null || fail "the first home could not lease"
   out=$(LEASES=$shared run_in "$TMP_ROOT/home-b" lease t1 Nexon4 2>&1) || rc=$?
   assert_equals "$rc" 4 "a second home leased a clone the first home holds"
@@ -247,6 +248,23 @@ test_release_refuses_a_recorded_task() {
   pass 'release refuses while the task is recorded, and --force overrides it'
 }
 
+test_the_lease_folder_is_the_captains_setup_answer() {
+  local dir out rc=0
+  dir="$TMP_ROOT/setup-answer"
+  make_home "$dir" wa
+  make_nexon_clone "$dir/wb/wa/Nexon4"
+  mkdir -p "$dir/config"
+  out=$(FM_WORKBENCH_LEASE_DIR='' FM_CONFIG_OVERRIDE="$dir/config" FM_STATE_OVERRIDE="$dir/state" \
+    FM_DATA_OVERRIDE="$dir/data" "$CMD" lease t1 Nexon4 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "a lease was taken with no lease folder chosen"
+  assert_contains "$out" "ask the captain which folder" "the refusal does not ask the setup question"
+  printf '%s\r\n' "$(winpath "$dir/chosen")" > "$dir/config/workbench-leases"
+  FM_WORKBENCH_LEASE_DIR='' FM_CONFIG_OVERRIDE="$dir/config" FM_STATE_OVERRIDE="$dir/state" \
+    FM_DATA_OVERRIDE="$dir/data" "$CMD" lease t1 Nexon4 >/dev/null || fail "the chosen lease folder was not used"
+  assert_present "$dir/chosen/wa-nexon4.lease" "the lease is not in the chosen folder"
+  pass 'the lease folder is the captain'"'"'s setup answer, recorded in config/workbench-leases'
+}
+
 test_each_clone_is_leased_to_one_task
 test_only_unstaged_switch_site_configs_count_as_clean
 test_a_task_stays_in_its_workbench_for_a_second_repo
@@ -255,3 +273,75 @@ test_release_drops_only_that_tasks_leases
 test_a_clone_off_its_idle_branch_is_not_leased
 test_leases_are_shared_by_every_home
 test_release_refuses_a_recorded_task
+
+test_the_lease_folder_is_the_captains_setup_answer
+
+test_check_proves_only_a_genuine_lease() {
+  local dir lease out rc
+  dir="$TMP_ROOT/check"
+  make_home "$dir" wa
+  make_nexon_clone "$dir/wb/wa/Nexon4"
+  run_in "$dir" lease t1 Nexon4 >/dev/null
+  lease="$dir/locks/wa-nexon4.lease"
+  out=$(run_in "$dir" check t1 "$lease") || fail "a genuine lease failed the check"
+  assert_equals "$out" "$(winpath "$dir/wb/wa")\Nexon4" "the check prints the leased clone"
+
+  rc=0; out=$(run_in "$dir" check t2 "$lease" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "another task's lease passed the check"
+  assert_contains "$out" "not task 't2'" "the wrong-task refusal names the task"
+
+  mkdir -p "$dir/elsewhere"
+  cp "$lease" "$dir/elsewhere/wa-nexon4.lease"
+  rc=0; out=$(run_in "$dir" check t1 "$dir/elsewhere/wa-nexon4.lease" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "a copy outside the lease folder passed the check"
+  assert_contains "$out" "not in the workbench lease folder" "the outside-folder refusal is named"
+
+  sed 's#^clone=.*#clone=C:\Other\Nexon4#' "$lease" > "$dir/locks/wa-payroll.lease"
+  rc=0; run_in "$dir" check t1 "$dir/locks/wa-payroll.lease" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -ne 0 ] || fail "a lease file not named for its repo passed the check"
+  rm -f "$dir/locks/wa-payroll.lease"
+
+  sed -i 's#^clone=.*#clone=C:\Other\Nexon4#' "$lease"
+  rc=0; out=$(run_in "$dir" check t1 "$lease" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "a lease on a clone outside the pool passed the check"
+  assert_contains "$out" "which is not workbench wa's Nexon4 clone" "the off-pool refusal is named"
+  pass 'check accepts only a lease of this task of this home, in the lease folder, on a pool clone'
+}
+
+test_a_fresh_lease_refuses_an_earlier_spawns_lease() {
+  local dir out rc=0
+  dir="$TMP_ROOT/fresh"
+  make_home "$dir" wa wb
+  make_nexon_clone "$dir/wb/wa/Nexon4"
+  make_nexon_clone "$dir/wb/wb/Nexon4"
+  run_in "$dir" lease t1 Nexon4 >/dev/null
+  out=$(run_in "$dir" lease --fresh t1 Nexon4 2>&1) || rc=$?
+  assert_equals "$rc" 5 "a fresh lease adopted an earlier lease of the same task"
+  assert_contains "$out" "release --force t1" "the refusal does not say how to clear it"
+  assert_present "$dir/locks/wa-nexon4.lease" "the refusal dropped the earlier lease"
+  out=$(run_in "$dir" lease --fresh t2 Nexon4) || fail "a fresh lease of a new task failed"
+  assert_contains "$out" "leased: wb Nexon4" "a fresh lease of a new task takes a free clone"
+  pass 'a fresh lease refuses, and keeps, a lease an earlier spawn of the task left'
+}
+
+test_concurrent_leases_get_different_clones() {
+  local dir a b
+  dir="$TMP_ROOT/concurrent"
+  make_home "$dir" wa wb
+  make_nexon_clone "$dir/wb/wa/Nexon4"
+  make_nexon_clone "$dir/wb/wb/Nexon4"
+  run_in "$dir" lease t1 Nexon4 > "$dir/t1.out" 2>&1 &
+  a=$!
+  run_in "$dir" lease t2 Nexon4 > "$dir/t2.out" 2>&1 &
+  b=$!
+  wait "$a" || fail "a concurrent lease failed: $(cat "$dir/t1.out")"
+  wait "$b" || fail "a concurrent lease failed: $(cat "$dir/t2.out")"
+  [ "$(sed -n 's/^leased: \([^ ]*\) .*/\1/p' "$dir/t1.out")" != "$(sed -n 's/^leased: \([^ ]*\) .*/\1/p' "$dir/t2.out")" ] ||
+    fail "two concurrent leases got the same clone"
+  assert_absent "$dir/locks/.lease.lock" "the lease lock was left behind"
+  pass 'two concurrent leases serialize on the lock and get different clones'
+}
+
+test_check_proves_only_a_genuine_lease
+test_a_fresh_lease_refuses_an_earlier_spawns_lease
+test_concurrent_leases_get_different_clones

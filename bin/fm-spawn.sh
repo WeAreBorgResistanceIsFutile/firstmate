@@ -1381,7 +1381,7 @@ spawn_abort_cleanup() {
   if [ "$SPAWN_LEASE_TAKEN" = 1 ] && [ "$status" -ne 0 ] &&
     [ ! -e "$STATE/$ID.meta" ] && [ ! -L "$STATE/$ID.meta" ]; then
     SPAWN_LEASE_TAKEN=0
-    FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+    FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVERRIDE="$CONFIG" \
       "$FM_ROOT/bin/fm-workbench.sh" release "$ID" >/dev/null ||
       echo "warning: could not release task $ID's workbench lease after the aborted spawn; run: bin/fm-workbench.sh release $ID" >&2
     rm -f "$STATE/$ID.claude-settings.json" 2>/dev/null || true
@@ -3060,9 +3060,17 @@ else
       exit 1
       ;;
     esac
-    lease_out=$(FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
-      "$FM_ROOT/bin/fm-workbench.sh" lease "$ID" "$PROJ" ${WORKBENCH_ARG:+"$WORKBENCH_ARG"}) || exit 1
+    # Marked before the call, so a spawn killed between the lease write and
+    # the next line still releases it; --fresh refuses (exit 5) to adopt a
+    # lease an earlier spawn of this id left behind, which must survive.
     SPAWN_LEASE_TAKEN=1
+    lease_status=0
+    lease_out=$(FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVERRIDE="$CONFIG" \
+      "$FM_ROOT/bin/fm-workbench.sh" lease --fresh "$ID" "$PROJ" ${WORKBENCH_ARG:+"$WORKBENCH_ARG"}) || lease_status=$?
+    if [ "$lease_status" -ne 0 ]; then
+      [ "$lease_status" -ne 5 ] || SPAWN_LEASE_TAKEN=0
+      exit 1
+    fi
     lease_line=$(printf '%s\n' "$lease_out" | sed -n 's/^leased: //p' | head -n 1)
     WORKBENCH_ID=${lease_line%% *}
     lease_rest=${lease_line#* }
@@ -3086,7 +3094,7 @@ else
   WT=""
   [ "$WORKBENCH" != 1 ] || [ "$RELAUNCH" -eq 1 ] || WT=$PROJ_ABS
   if [ "$WORKBENCH" = 1 ]; then
-    WORKBENCH_LEASE=$("$FM_ROOT/bin/fm-workbench.sh" path "$WORKBENCH_ID" "$WORKBENCH_REPO") || {
+    WORKBENCH_LEASE=$(FM_CONFIG_OVERRIDE="$CONFIG" "$FM_ROOT/bin/fm-workbench.sh" path "$WORKBENCH_ID" "$WORKBENCH_REPO") || {
       echo "error: could not resolve the workbench lease file for $WORKBENCH_ID $WORKBENCH_REPO" >&2
       exit 1
     }
@@ -3365,11 +3373,16 @@ validate_workbench_clone() { # <source> <inspect-target>
     echo "error: $source: workbench clone '$WT' is not a git clone root (root '${top:-none}'); refusing to launch. Inspect target $inspect_target" >&2
     exit 1
   fi
-  # Leases are machine-wide and task ids are unique only within one home, so
-  # the lease must name this home as well as this task.
-  if [ ! -f "$WORKBENCH_LEASE" ] || [ "$(sed -n 's/^task=//p' "$WORKBENCH_LEASE" | head -n 1)" != "$ID" ] ||
-    [ "$(sed -n 's/^home=//p' "$WORKBENCH_LEASE" | head -n 1)" != "$(cd "$STATE" && pwd -P)" ]; then
-    echo "error: $source: workbench lease '$WORKBENCH_LEASE' does not name task $ID of this home; refusing to launch in a clone this task does not hold. Inspect target $inspect_target" >&2
+  # bin/fm-workbench.sh check owns what makes the lease genuine (this task of
+  # this home, on a confirmed pool clone); the clone it names must be this one.
+  local leased
+  if ! leased=$(FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVERRIDE="$CONFIG" \
+    "$FM_ROOT/bin/fm-workbench.sh" check "$ID" "$WORKBENCH_LEASE" 2>&1); then
+    echo "error: $source: $leased; refusing to launch in a clone this task does not hold. Inspect target $inspect_target" >&2
+    exit 1
+  fi
+  if [ "$(real_path_or_raw "$(_fm_workbench_posix_path "$leased")")" != "$(real_path_or_raw "$WT")" ]; then
+    echo "error: $source: the lease is for clone '$leased', not '$WT'; refusing to launch. Inspect target $inspect_target" >&2
     exit 1
   fi
 }
@@ -4484,7 +4497,8 @@ claude*)
       spawn_trust_args=("$WT" "$PROJ_ABS")
     fi
   fi
-  if ! "$FM_ROOT/bin/fm-claude-trust.sh" "${spawn_trust_args[@]}" >/dev/null; then
+  if ! FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVERRIDE="$CONFIG" \
+    "$FM_ROOT/bin/fm-claude-trust.sh" "${spawn_trust_args[@]}" >/dev/null; then
     echo "error: could not pre-register Claude workspace trust for $WT; refusing to launch a claude worker that would wedge on the trust dialog; inspect window $T" >&2
     exit 1
   fi

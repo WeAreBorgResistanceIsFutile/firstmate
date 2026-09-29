@@ -5,19 +5,24 @@
 # list. `discover` builds the pool from IIS's applicationHost.config through
 # bin/fm-workbench-lib.sh and caches it in state/workbenches. A workbench the
 # captain has not confirmed is reported as `new` and must not be used until
-# `confirm <id>` records the captain's word in data/workbenches-confirmed.
+# `confirm <id>` records the captain's word in data/workbenches-confirmed as
+# id<TAB>root; a workbench whose root has changed since is `new` again.
 #
 # Usage:
 #   fm-workbench.sh discover        refresh state/workbenches from IIS, print the pool
 #   fm-workbench.sh list            print the cached pool without reading IIS
 #   fm-workbench.sh confirm <id>    record the captain's confirmation of one workbench
-#   fm-workbench.sh lease <task> <repo> [<workbench>]
-#                                   lease a free, clean <root>\<repo> clone to <task>
+#   fm-workbench.sh lease [--fresh] <task> <repo> [<workbench>]
+#                                   lease a free, clean <root>\<repo> clone to <task>;
+#                                   --fresh (a new task) refuses, exit 5, if it holds any
 #   fm-workbench.sh release [--force] <task>
 #                                   drop every lease <task> holds
 #   fm-workbench.sh status          print every lease: workbench repo task time clone home
 #   fm-workbench.sh path <workbench> <repo>
 #                                   print the lease file of one repo clone
+#   fm-workbench.sh check <task> <lease-file>
+#                                   prove the file is a lease of <task> of this home
+#                                   on a confirmed pool clone, and print that clone
 #
 # Pool rows: id<TAB>status<TAB>root<TAB>clone<TAB>site<TAB>url<TAB>identity,
 # status is `confirmed` or `new`. A trailing `new:` line names every
@@ -25,7 +30,9 @@
 #
 # Leases are per repo clone and machine-wide: every firstmate home on this
 # machine leases the same physical clones, so the lease files and their lock live
-# in one shared folder, FM_WORKBENCH_LEASE_DIR (default C:\Agents\locks\workbench).
+# in one shared folder. Which folder is a setup question for the captain, whose
+# answer config/workbench-leases records (bin/fm-workbench-lib.sh ::
+# fm_workbench_lease_dir); until then lease, release, status and path refuse.
 # <dir>/<id>-<repo>.lease records task, the leasing home's state directory,
 # workbench, repo, clone and time; a task is named by its home and its id,
 # because task ids are unique only within one home. `lease` considers only
@@ -49,9 +56,9 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 CACHE="$STATE/workbenches"
+CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 CONFIRMED="$DATA/workbenches-confirmed"
 APPHOST="${FM_IIS_APPHOST_CONFIG:-${WINDIR:-/c/Windows}/System32/inetsrv/config/applicationHost.config}"
-LEASE_DIR="${FM_WORKBENCH_LEASE_DIR:-/c/Agents/locks/workbench}"
 
 # shellcheck source=bin/fm-workbench-lib.sh
 . "$SCRIPT_DIR/fm-workbench-lib.sh"
@@ -59,12 +66,21 @@ LEASE_DIR="${FM_WORKBENCH_LEASE_DIR:-/c/Agents/locks/workbench}"
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 
 usage() {
-  sed -n 's/^# \{0,1\}//; 10,20p' "${BASH_SOURCE[0]}" >&2
+  sed -n 's/^# \{0,1\}//; 11,25p' "${BASH_SOURCE[0]}" >&2
   exit 2
 }
 
+# The root the cached pool records for workbench $1, or nothing.
+pool_root() {  # <id>
+  [ -f "$CACHE" ] && awk -F'\t' -v id="$1" '$1 == id { print $2; exit }' "$CACHE"
+}
+
+# A confirmation is the id and the root the captain confirmed together, so a
+# different folder that later takes the same name is new again.
 is_confirmed() {  # <id>
-  [ -f "$CONFIRMED" ] && grep -qxF "$1" "$CONFIRMED"
+  local root
+  root=$(pool_root "$1")
+  [ -n "$root" ] && [ -f "$CONFIRMED" ] && grep -qxF "$1"$'\t'"$root" "$CONFIRMED"
 }
 
 print_pool() {
@@ -112,11 +128,19 @@ cmd_confirm() {  # <id>
     return 0
   fi
   mkdir -p "$DATA"
-  printf '%s\n' "$id" >> "$CONFIRMED"
+  printf '%s\t%s\n' "$id" "$(pool_root "$id")" >> "$CONFIRMED"
   echo "confirmed: $id"
 }
 
-LEASE_LOCK="$LEASE_DIR/.lease.lock"
+LEASE_DIR=
+LEASE_LOCK=
+
+# Resolve the shared lease folder, or refuse with the setup question.
+need_lease_dir() {
+  LEASE_DIR=$(fm_workbench_lease_dir "$CONFIG") || exit 1
+  LEASE_LOCK="$LEASE_DIR/.lease.lock"
+}
+
 # The leasing home, as the resolved path of its state directory.
 HOME_STATE=
 LEASE_WAIT_SECONDS="${FM_WORKBENCH_LEASE_WAIT:-120}"
@@ -146,6 +170,20 @@ valid_name() {  # <value>
   case "$1" in '' | *[!A-Za-z0-9._-]* | .*) return 1 ;; esac
 }
 
+# Print the entry of directory $1 whose name matches $2 ignoring case, or $2.
+on_disk_name() {  # <posix-dir> <name>
+  local entry want
+  want=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
+  for entry in "$1"/*; do
+    [ -d "$entry" ] || continue
+    if [ "$(printf '%s' "${entry##*/}" | tr '[:upper:]' '[:lower:]')" = "$want" ]; then
+      printf '%s\n' "${entry##*/}"
+      return 0
+    fi
+  done
+  printf '%s\n' "$2"
+}
+
 # 0 iff lease file $1 belongs to task $2 of this home.
 lease_is_ours() {  # <lease-file> <task>
   [ "$(lease_field "$1" task)" = "$2" ] && [ "$(lease_field "$1" home)" = "$HOME_STATE" ]
@@ -160,8 +198,8 @@ lease_files() {
   return 0
 }
 
-cmd_lease() {  # <task> <repo> [<workbench>]
-  local task=$1 repo=$2 want=${3:-} f held_wb= id root clone site url identity posix dirt off holder
+cmd_lease() {  # <fresh:0|1> <task> <repo> [<workbench>]
+  local fresh=$1 task=$2 repo=$3 want=${4:-} f held_wb= id root clone site url identity posix dirt off holder name
   local found_clone=0 reasons=
   valid_name "$task" || { echo "error: invalid task id '$task'" >&2; return 2; }
   valid_name "$repo" || { echo "error: invalid repo name '$repo'" >&2; return 2; }
@@ -171,8 +209,12 @@ cmd_lease() {  # <task> <repo> [<workbench>]
   while IFS= read -r f; do
     lease_is_ours "$f" "$task" || continue
     held_wb=$(lease_field "$f" workbench)
+    if [ "$fresh" = 1 ]; then
+      echo "error: task $task already holds a lease on workbench $held_wb's $(lease_field "$f" repo) clone from an earlier spawn; a new task starts with none, so release it once no worker uses the clone: fm-workbench.sh release --force $task" >&2
+      return 5
+    fi
     if [ "$(lease_field "$f" repo | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$repo" | tr '[:upper:]' '[:lower:]')" ]; then
-      printf 'leased: %s %s %s\n' "$held_wb" "$repo" "$(lease_field "$f" clone)"
+      printf 'leased: %s %s %s\n' "$held_wb" "$(lease_field "$f" repo)" "$(lease_field "$f" clone)"
       return 0
     fi
   done < <(lease_files)
@@ -188,7 +230,10 @@ cmd_lease() {  # <task> <repo> [<workbench>]
   while IFS=$'\t' read -r id root clone site url identity; do
     case "$id" in '#'* | '') continue ;; esac
     [ -z "$want" ] || [ "$id" = "$want" ] || continue
-    clone="$root\\$repo"
+    # The folder's own spelling, not the caller's: Windows matches either,
+    # but a trust key or project key written from `nexon4` would not.
+    name=$(on_disk_name "$(_fm_workbench_posix_path "$root")" "$repo")
+    clone="$root\\$name"
     posix=$(_fm_workbench_posix_path "$clone")
     [ -e "$posix/.git" ] || continue
     found_clone=1
@@ -220,9 +265,9 @@ cmd_lease() {  # <task> <repo> [<workbench>]
       continue
     fi
     printf 'task=%s\nhome=%s\nworkbench=%s\nrepo=%s\nclone=%s\nleased_at=%s\n' \
-      "$task" "$HOME_STATE" "$id" "$repo" "$clone" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$f.tmp.$$"
+      "$task" "$HOME_STATE" "$id" "$name" "$clone" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$f.tmp.$$"
     mv -f "$f.tmp.$$" "$f"
-    printf 'leased: %s %s %s\n' "$id" "$repo" "$clone"
+    printf 'leased: %s %s %s\n' "$id" "$name" "$clone"
     return 0
   done < "$CACHE"
   if [ "$found_clone" = 0 ] && [ -z "$reasons" ]; then
@@ -254,6 +299,45 @@ cmd_release() {  # <task> [--force]
   [ "$released" = 1 ] || echo "no lease held by task $task"
 }
 
+# Prove lease file $2 is a real lease of task $1 of this home: a regular file in
+# the lease folder, named for its workbench and repo, whose workbench is a
+# confirmed pool row and whose clone is that row's <root>\<repo>. Prints the
+# clone. Read-only, so it takes no lock.
+cmd_check() {  # <task> <lease-file>
+  local task=$1 file=$2 id repo root dir
+  valid_name "$task" || { echo "error: invalid task id '$task'" >&2; return 2; }
+  HOME_STATE=$(cd "$STATE" 2>/dev/null && pwd -P) || { echo "error: no state directory $STATE" >&2; return 1; }
+  if [ -L "$file" ] || [ ! -f "$file" ]; then
+    echo "error: '$file' is not a regular lease file" >&2
+    return 1
+  fi
+  dir=$(cd "$(dirname "$file")" && pwd -P)
+  if [ "$dir" != "$(cd "$LEASE_DIR" 2>/dev/null && pwd -P)" ]; then
+    echo "error: '$file' is not in the workbench lease folder $LEASE_DIR" >&2
+    return 1
+  fi
+  if ! lease_is_ours "$file" "$task"; then
+    echo "error: '$file' names task '$(lease_field "$file" task)' of the home at '$(lease_field "$file" home)', not task '$task' of $HOME_STATE" >&2
+    return 1
+  fi
+  id=$(lease_field "$file" workbench)
+  repo=$(lease_field "$file" repo)
+  if ! valid_name "$id" || ! valid_name "$repo" || [ "${file##*/}" != "$(basename "$(lease_file "$id" "$repo")")" ]; then
+    echo "error: '$file' is not named for its workbench '$id' and repo '$repo'" >&2
+    return 1
+  fi
+  if ! is_confirmed "$id"; then
+    echo "error: workbench '$id' of '$file' is not confirmed by the captain" >&2
+    return 1
+  fi
+  root=$(pool_root "$id")
+  if [ -z "$root" ] || [ "$(lease_field "$file" clone)" != "$root\\$repo" ]; then
+    echo "error: '$file' leases clone '$(lease_field "$file" clone)', which is not workbench $id's $repo clone" >&2
+    return 1
+  fi
+  printf '%s\n' "$root\\$repo"
+}
+
 cmd_status() {
   local f any=0
   while IFS= read -r f; do
@@ -268,7 +352,20 @@ case "${1:-}" in
   discover) [ $# -eq 1 ] || usage; cmd_discover ;;
   list) [ $# -eq 1 ] || usage; print_pool ;;
   confirm) [ $# -eq 2 ] || usage; cmd_confirm "$2" ;;
-  lease) [ $# -eq 3 ] || [ $# -eq 4 ] || usage; cmd_lease "$2" "$3" "${4:-}" ;;
+  lease | release | status | path | check) need_lease_dir ;;
+  *) usage ;;
+esac
+case "${1:-}" in
+  discover | list | confirm) ;;
+  lease)
+    if [ "${2:-}" = --fresh ]; then
+      [ $# -eq 4 ] || [ $# -eq 5 ] || usage
+      cmd_lease 1 "$3" "$4" "${5:-}"
+    else
+      [ $# -eq 3 ] || [ $# -eq 4 ] || usage
+      cmd_lease 0 "$2" "$3" "${4:-}"
+    fi
+    ;;
   release)
     if [ $# -eq 3 ] && [ "$2" = --force ]; then
       cmd_release "$3" --force
@@ -279,5 +376,6 @@ case "${1:-}" in
     ;;
   status) [ $# -eq 1 ] || usage; cmd_status ;;
   path) [ $# -eq 3 ] && valid_name "$2" && valid_name "$3" || usage; lease_file "$2" "$3" ;;
+  check) [ $# -eq 3 ] || usage; cmd_check "$2" "$3" ;;
   *) usage ;;
 esac

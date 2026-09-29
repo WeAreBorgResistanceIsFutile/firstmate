@@ -92,7 +92,7 @@ Each effective `FM_HOME` contains private operational directories.
 - Private secondmate config-reread generations with their retry and quarantine state.
 - Per-task steering-inbox records under `state/<id>.inbox/` (`bin/fm-task-inbox-lib.sh`).
 - Parent-owned secondmate pending-reply records under `state/pending-replies/` (`bin/fm-pending-reply-lib.sh`).
-- In workbench mode, the discovered workbench pool cached in `state/workbenches` (`bin/fm-workbench.sh`). Its per-repo-clone leases are machine-wide, not per home: `<FM_WORKBENCH_LEASE_DIR>/<id>-<repo>.lease`, default folder `C:\Agents\locks\workbench`.
+- In workbench mode, the discovered workbench pool cached in `state/workbenches` (`bin/fm-workbench.sh`). Its per-repo-clone leases are machine-wide, not per home: `<id>-<repo>.lease` in the folder `config/workbench-leases` names (see "Workspace mode").
 
 `config/` holds local gitignored operating choices, including explicit extension bindings under `config/extensions.d/`.
 
@@ -807,6 +807,7 @@ The token is the file's whitespace-trimmed content.
 | `workbench` | a leased clone in a fixed workbench; Treehouse and no-mistakes are not used |
 
 In `workbench` mode, bootstrap drops `treehouse` and `no-mistakes` from the required tools.
+Workbench leases live in one folder every firstmate home on the machine shares, which the captain chooses at setup: bootstrap reports `CONFIG: config/workbench-leases is not set` until the local, gitignored `config/workbench-leases` holds that folder's path, and leasing refuses meanwhile (`bin/fm-workbench-lib.sh :: fm_workbench_lease_dir`).
 Any other value is reported by bootstrap as `CONFIG: config/workspace is invalid` and the default tool list stays.
 `bin/fm-workbench-lib.sh :: fm_workspace_mode` is the single resolver.
 `bin/fm-workbench.sh discover` builds the workbench pool from IIS's `applicationHost.config`: every application serving a `\Frontend\Source\Nexon.Web` folder of a git clone is one workbench, whose root is the clone's parent folder and whose id is that folder's lowercased name.

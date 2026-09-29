@@ -11,6 +11,8 @@
 #                 "BACKEND_INVALID: <name> (known: <names>)",
 #                 "STARTUP_MEMORY_BUDGET: invalid config/startup-memory-budget - <reason>",
 #                 "CREW_DISPATCH: invalid config/crew-dispatch.json - <reason>",
+#                 "CONFIG: config/workspace is invalid; ...",
+#                 "CONFIG: config/workbench-leases is not set; ask the captain ...",
 #                 "FLEET_SYNC: <repo>: skipped|recovered|STUCK: <detail>",
 #                 "HOME_SUMMARY: <ledger never published|not republished since
 #                 <stamp>>; <n> failed attempt(s) ... last: <recorded failure>",
@@ -853,6 +855,10 @@ if WORKSPACE_MODE=$(fm_workspace_mode "$CONFIG"); then
     BACKEND_TOOLS=$(workbench_tool_list "$BACKEND_TOOLS")
     COMMON_TOOLS=$(workbench_tool_list "$COMMON_TOOLS")
     TOOLS="$BACKEND_TOOLS $COMMON_TOOLS"
+    # The machine-wide lease folder is the captain's setup answer.
+    if ! fm_workbench_lease_dir "$CONFIG" >/dev/null 2>&1; then
+      echo "CONFIG: config/workbench-leases is not set; ask the captain which folder every firstmate home on this machine shares for workbench leases (suggested: $FM_WORKBENCH_LEASE_DIR_SUGGESTED)"
+    fi
   fi
 else
   echo "CONFIG: config/workspace is invalid; accepted values: treehouse, workbench"

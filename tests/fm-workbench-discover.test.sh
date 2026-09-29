@@ -76,6 +76,22 @@ test_two_roots_with_the_same_name_are_refused() {
   pass 'two workbench roots with the same name are refused'
 }
 
+test_a_clone_two_sites_serve_is_one_workbench_and_a_bad_name_is_skipped() {
+  local dir out err
+  dir="$TMP_ROOT/two-sites"
+  make_workbench "$dir/AgentQ" 0
+  make_workbench "$dir/Agent Z" 0
+  out=$(printf '%s\t%s\t%s\n' \
+    'Q1' "$(winpath "$dir/AgentQ/Nexon4/Frontend/Source/Nexon.Web")" 'http/*:8093:' \
+    'Q2' "$(winpath "$dir/agentq/Nexon4/Frontend/Source/Nexon.Web")" 'http/*:8094:' \
+    'Z' "$(winpath "$dir/Agent Z/Nexon4/Frontend/Source/Nexon.Web")" 'http/*:8095:' \
+    | from_rows 2>"$dir.err") || fail "a clone served by two sites refused the whole pool"
+  err=$(cat "$dir.err")
+  assert_equals "$(printf '%s\n' "$out" | cut -f1)" agentq "the twice-served clone is one workbench and the bad name is left out"
+  assert_contains "$err" "has no usable id" "the skipped root is reported"
+  pass 'a clone two sites serve is one workbench, and a root with an unusable name is skipped'
+}
+
 test_discover_caches_and_confirm_is_durable() {
   local dir config out rc=0
   if ! command -v powershell.exe >/dev/null 2>&1; then
@@ -121,10 +137,17 @@ XML
 
   out=$(run discover)
   assert_contains "$out" "agentm"$'\t'"confirmed" "confirmation survives a re-discovery"
+  assert_contains "$(cat "$dir/data/workbenches-confirmed")" "agentm"$'\t'"$(winpath "$dir/AgentM")" \
+    "the confirmation records the root the captain confirmed"
+  MOVED_ROOT=$(winpath "$dir/Moved/AgentM") awk -F'\t' -v OFS='\t' '$1 == "agentm" { $2 = ENVIRON["MOVED_ROOT"] } 1' \
+    "$dir/state/workbenches" > "$dir/moved" && mv "$dir/moved" "$dir/state/workbenches"
+  out=$(run list)
+  assert_contains "$out" "agentm"$'\t'"new" "a workbench whose root moved is new again"
   pass 'discover caches the pool and confirm records the captain word durably'
 }
 
 test_rows_become_one_workbench_per_clone
 test_a_served_folder_that_is_not_a_clone_is_skipped
 test_two_roots_with_the_same_name_are_refused
+test_a_clone_two_sites_serve_is_one_workbench_and_a_bad_name_is_skipped
 test_discover_caches_and_confirm_is_durable

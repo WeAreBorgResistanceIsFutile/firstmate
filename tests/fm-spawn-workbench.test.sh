@@ -54,7 +54,7 @@ PS
   printf '# id\troot\tclone\tsite\turl\tidentity\n' > "$home/state/workbenches"
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' wa "$(winpath "$case_dir/wb/wa")" "$(winpath "$clone")" \
     site-wa http://wa.localhost - >> "$home/state/workbenches"
-  printf 'wa\n' > "$home/data/workbenches-confirmed"
+  printf 'wa\t%s\n' "$(winpath "$case_dir/wb/wa")" > "$home/data/workbenches-confirmed"
   printf '%s\n' "$case_dir|$home|$clone|$fakebin|$case_dir/launch.log"
 }
 
@@ -115,8 +115,12 @@ test_a_scout_launches_in_the_leased_clone_and_leaves_it_untouched() {
   assert_contains "$launch" "$id.claude-settings.json'" "the launch does not pass the task's hooks file"
   assert_not_contains "$launch" '{"feedbackDrafts"' "the inline settings JSON was not replaced by the file"
 
-  assert_contains "$(cat "$HOME_DIR/user-home/.claude.json")" "hasTrustDialogAccepted" \
-    "trust was not pre-registered for the clone"
+  # Claude on Windows keys a project as C:/dir/sub; elsewhere the plain path.
+  local trust_key
+  trust_key=$(cd "$CLONE" && pwd -P)
+  command -v cygpath >/dev/null 2>&1 && trust_key=$(cygpath -m "$trust_key")
+  jq -e --arg k "$trust_key" '.projects[$k].hasTrustDialogAccepted == true' "$HOME_DIR/user-home/.claude.json" >/dev/null ||
+    fail "trust was not pre-registered under the key $trust_key: $(jq -c '.projects | keys' "$HOME_DIR/user-home/.claude.json")"
 
   # Worktree cleanup would detach, delete the branch and remove the clone's own
   # settings file; until workbench cleanup exists it must refuse outright.
@@ -200,3 +204,21 @@ test_a_non_claude_worker_is_refused_and_the_lease_released
 test_a_dirty_clone_is_not_leased
 test_a_path_project_argument_is_refused
 test_a_ship_and_an_unknown_workspace_are_refused
+
+test_an_abort_after_the_lease_releases_it() {
+  local rec id out status
+  id=wb-abort
+  rec=$(make_case abort claude "$id")
+  read_case "$rec"
+  # A relative CLAUDE_CONFIG_DIR makes the trust step refuse, after the lease.
+  out=$(FM_TEST_CLAUDE_CONFIG_DIR=relative-store run_spawn "$id" Nexon4 --scout)
+  status=$?
+  [ "$status" -ne 0 ] || fail "the spawn launched although the trust step refused"
+  assert_contains "$out" "relative path" "the spawn did not fail at the trust step"$'\n'"$out"
+  assert_absent "$HOME_DIR/state/$id.meta" "the aborted spawn left a task record"
+  assert_absent "$CASE_DIR/locks/wa-nexon4.lease" "the aborted spawn left the clone leased"
+  assert_absent "$HOME_DIR/state/$id.claude-settings.json" "the aborted spawn left its hooks file"
+  pass 'a spawn that aborts after taking the lease releases it'
+}
+
+test_an_abort_after_the_lease_releases_it

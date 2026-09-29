@@ -281,9 +281,11 @@ if [ "$MODE" = workbench-clone ]; then
   [ ! -L "$LEASE_ARG" ] || refuse "lease '$LEASE_ARG' is a symlink; a workbench lease is a regular file"
   [ -f "$LEASE_ARG" ] || refuse "no workbench lease at '$LEASE_ARG'"
   [ -O "$LEASE_ARG" ] || refuse "lease '$LEASE_ARG' is not owned by this user"
-  WB_TASK=$(sed -n 's/^task=//p' "$LEASE_ARG" | head -n 1)
-  [ "$WB_TASK" = "$SUB_ID" ] || refuse "lease '$LEASE_ARG' names task '${WB_TASK:-none}', not '$SUB_ID'"
-  WB_CLONE=$(sed -n 's/^clone=//p' "$LEASE_ARG" | head -n 1 | tr -d '\r')
+  # fm-workbench.sh check owns what makes a lease genuine: in the shared lease
+  # folder, of this task of this home, on a confirmed pool clone.
+  WB_CHECK=$("${BASH_SOURCE[0]%/*}/fm-workbench.sh" check "$SUB_ID" "$LEASE_ARG" 2>&1) ||
+    refuse "lease '$LEASE_ARG' is not a genuine workbench lease: $WB_CHECK"
+  WB_CLONE=$(printf '%s\n' "$WB_CHECK" | tail -n 1)
   command -v cygpath >/dev/null 2>&1 && [ -n "$WB_CLONE" ] && WB_CLONE=$(cygpath -u "$WB_CLONE")
   WB_CLONE_REAL=$(real_dir "$WB_CLONE") || true
   [ "$WB_CLONE_REAL" = "$TARGET_REAL" ] || refuse "lease '$LEASE_ARG' is for clone '${WB_CLONE:-none}', not '$TARGET_REAL'"
@@ -444,7 +446,13 @@ fi
 # consent the human was never asked for.
 TRUST_FLAG='hasTrustDialogAccepted'
 IMPORT_FLAGS='["hasClaudeMdExternalIncludesApproved","hasClaudeMdExternalIncludesWarningShown"]'
-if [ "$MODE" = worktree ] || [ "$MODE" = workbench-clone ]; then
+if [ "$MODE" = workbench-clone ]; then
+  # Claude on Windows keys a project as C:/dir/sub. Convert explicitly rather
+  # than rely on MSYS rewriting a /c/... argument on its way to node.exe.
+  WB_KEY=$TARGET_REAL
+  command -v cygpath >/dev/null 2>&1 && WB_KEY=$(cygpath -m "$TARGET_REAL")
+  WRITE_ARGS=("$STORE" worktree "$WB_KEY" "$WB_KEY" "$TRUST_FLAG" "$IMPORT_FLAGS")
+elif [ "$MODE" = worktree ]; then
   WRITE_ARGS=("$STORE" worktree "$TARGET_REAL" "$PROJ_CANON" "$TRUST_FLAG" "$IMPORT_FLAGS")
 else
   WRITE_ARGS=("$STORE" "$MODE" "$TARGET_REAL" "" "$TRUST_FLAG" "$IMPORT_FLAGS")

@@ -34,6 +34,33 @@ fm_workspace_mode() {  # <config-dir>
   esac
 }
 
+# --- lease folder ------------------------------------------------------------
+#
+# Every firstmate home on the machine leases the same physical clones, so the
+# leases live in one folder they all share. Where that folder is, is a setup
+# question for the captain: config/workbench-leases holds the answer (a Windows
+# or Git Bash path), and the same folder must be named in every home.
+# FM_WORKBENCH_LEASE_DIR overrides it (tests).
+
+FM_WORKBENCH_LEASE_DIR_SUGGESTED='C:\Agents\locks\workbench'
+
+# Print the lease folder as a Git Bash path for config dir $1, or print a
+# diagnostic to stderr and return 1 when the captain has not chosen one yet.
+fm_workbench_lease_dir() {  # <config-dir>
+  local file=$1/workbench-leases dir
+  if [ -n "${FM_WORKBENCH_LEASE_DIR:-}" ]; then
+    printf '%s\n' "$FM_WORKBENCH_LEASE_DIR"
+    return 0
+  fi
+  dir=
+  [ ! -f "$file" ] || dir=$(tr -d '\r' < "$file" | sed -n '/[^[:space:]]/{s/^[[:space:]]*//; s/[[:space:]]*$//; p; q;}')
+  if [ -z "$dir" ]; then
+    echo "error: $file is not set; ask the captain which folder every firstmate home on this machine shares for workbench leases (suggested: $FM_WORKBENCH_LEASE_DIR_SUGGESTED), then write that path there" >&2
+    return 1
+  fi
+  _fm_workbench_posix_path "$dir"
+}
+
 # --- workbench discovery -----------------------------------------------------
 #
 # Workbenches are not a hand-kept list: recruit-agent can add one at any time.
@@ -127,13 +154,16 @@ _fm_workbench_cmd_value() {  # <workbench.cmd> <name>
 # Read fm_workbench_iis_rows output on stdin and print one row per workbench:
 #   id<TAB>root<TAB>clone<TAB>site<TAB>url<TAB>identity
 # id is the root folder's lowercased name, identity is `workbench.cmd` or `-`.
-# An application whose folder is not a git clone is skipped with a warning; two
-# roots with the same name are refused, because the id names lease files.
+# An application whose folder is not a git clone is skipped with a warning, a
+# root a second site also serves is listed once, a root whose name is not a
+# plain id is skipped with a warning, and two roots with the same name are
+# refused, because the id names lease files.
 fm_workbench_from_iis_rows() {
-  local site physical bindings lower suffix clone root id url identity posix_clone out ids
+  local site physical bindings lower suffix clone root id url identity posix_clone out ids roots
   suffix=$(printf '%s' "$FM_WORKBENCH_WEB_SUFFIX" | tr '[:upper:]' '[:lower:]')
   out=
   ids=' '
+  roots=$'\n'
   while IFS=$'\t' read -r site physical bindings; do
     [ -n "$physical" ] || continue
     physical=${physical%\\}
@@ -149,7 +179,18 @@ fm_workbench_from_iis_rows() {
       echo "warning: site '$site' serves $clone, which is not a git clone; skipped" >&2
       continue
     fi
+    # Two sites can serve one clone; it is still one workbench.
+    lower=$(printf '%s' "$root" | tr '[:upper:]' '[:lower:]')
+    case "$roots" in *$'\n'"$lower"$'\n'*) continue ;; esac
+    roots="$roots$lower"$'\n'
     id=$(printf '%s' "${root##*\\}" | tr '[:upper:]' '[:lower:]')
+    # The id names lease files and travels in space-separated output.
+    case "$id" in
+      '' | *[!a-z0-9._-]* | .*)
+        echo "warning: workbench root $root has no usable id ('$id': letters, digits, '.', '_', '-' only); skipped" >&2
+        continue
+        ;;
+    esac
     case "$ids" in
       *" $id "*)
         echo "error: two workbench roots are both named '$id' (second: $root); workbench ids must be unique" >&2

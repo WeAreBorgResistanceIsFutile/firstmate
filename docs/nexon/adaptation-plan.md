@@ -130,9 +130,10 @@ without the worker changing anything.
    picks a workbench whose `<root>\<repo>` exists, has no live lease, is clean
    (beyond the Switch-Site configs for Nexon4) and sits on its idle branch
    (origin/HEAD, not ahead of it); writes `<id>-<repo>.lease` (task, home, time)
-   under a lock in the machine-wide `C:\Agents\locks\workbench\`, shared by
-   every firstmate home *(2026-09-29, captain: shared folder, not
-   primary-home-only)*; a second repo for the same task leases the same
+   under a lock in one machine-wide folder shared by every firstmate home
+   *(2026-09-29, captain: shared folder, not primary-home-only; its location is
+   a setup question recorded in `config/workbench-leases`, suggested
+   `C:\Agents\locks\workbench`)*; a second repo for the same task leases the same
    workbench's clone; `release [--force] <task>` (refuses while the task is
    still recorded); `status`. The dirt probe runs `git --no-optional-locks`, so
    it never takes another agent's `index.lock`. If no workbench has a clone of `<repo>`, it stops and reports that
@@ -176,22 +177,16 @@ without the worker changing anything.
     -o`, `mkfifo` users (`bin/fm-pr-lib.sh`, `bin/fm-watch.sh`,
     `bin/fm-procevent.sh`).
 
-**Open from the 2026-09-29 review of steps 4–8** (fixed then: `--no-optional-locks`
-dirt probe, machine-wide leases, the idle-branch rule, the scouts-only rule,
-`release` refusing a recorded task, an unknown `config/workspace` stopping the
-spawn, workbench keys no longer duplicated on relaunch):
-- `fm-claude-trust.sh --workbench-clone` accepts any lease file the user owns;
-  tie it to the lease folder and a confirmed pool row.
-- The trust key's `C:/` form relies on MSYS argument conversion; convert with
-  `cygpath -m`, record the clone's on-disk name, assert the exact key in a test.
-- Confirmations match the id only; store `id` and root together.
-- Discovery refuses the whole pool when two sites serve one clone, and accepts a
-  root name with a space; skip the duplicate, validate the id.
-- Lease-leak windows: a spawn killed between the lease write and
-  `SPAWN_LEASE_TAKEN=1`; a fresh spawn reusing an old lease of the same id
-  without a dirt check; `validate_workbench_clone` never compares `clone=`.
-- Tests: workbench relaunch, an abort after the lease, trust refusals, lease
-  lock contention.
+**The 2026-09-29 review of steps 4–8** is fixed: `--no-optional-locks` dirt
+probe; machine-wide leases whose folder is a setup question
+(`config/workbench-leases`); the idle-branch rule; scouts only; `release`
+refusing a recorded task; an unknown `config/workspace` stopping the spawn; no
+duplicated workbench keys on relaunch; `fm-workbench.sh check` as the one proof
+of a genuine lease, used by the trust step and the spawn's clone check; the
+trust key converted with `cygpath -m`; the repo folder's on-disk spelling in
+the lease; confirmations stored as id and root; discovery listing a
+twice-served clone once and skipping an unusable root name; `lease --fresh`
+closing the spawn's lease-leak windows. Still open: a workbench relaunch test.
 
 **Exit criteria:** the lock holds; the task completes and is cleaned up; M's
 clone, `workbench.cmd` and `settings.local.json` are byte-identical before and
