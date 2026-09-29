@@ -158,10 +158,15 @@ without the worker changing anything.
    would fire the task's hooks. A relaunch retires the state file, never the
    clone's (`fm-control-lib.sh :: fm_control_harness_wiring_paths`). Live check
    still open: hooks passed with `--settings` fire alongside the clone's own.
-9. **Cleanup in workbench mode** (`bin/fm-teardown.sh`): no `checkout --detach`,
-   no `branch -D`, no `treehouse return`, and no `rm` of the clone's
-   `.claude/settings.local.json`; release the lease; remove
-   `state/<id>.claude-settings.json`.
+9. **Cleanup in workbench mode** *(Done 2026-09-29, not live-tested:
+   `tests/fm-spawn-workbench.test.sh`.)* (`bin/fm-teardown.sh`): no `checkout --detach`,
+   no `branch -D`, no `treehouse return`, no `rm` of the clone's
+   `.claude/settings.local.json`, and no process sweep by working directory
+   (other agents work in the clone; only the task's temp root is swept); the
+   lease is released once the endpoint is closed, and
+   `state/<id>.claude-settings.json` removed. A scout that left the clone dirty
+   or off its idle branch refuses cleanup; `--force` cleans up the task and
+   leaves the clone as it is. Scouts only, as spawn.
 10. **Form of address chosen by the user.** `AGENTS.md` hard-codes "captain" as
     the mandatory chat address. Replace that with the user's own choice: at
     setup (a session start whose `data/captain.md` has no form of address yet)

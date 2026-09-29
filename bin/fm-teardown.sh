@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tear down a finished task: return the treehouse worktree, release the Orca
-# worktree, or retire a secondmate home; kill the recorded runtime endpoint,
+# worktree, release a workbench-mode task's lease while keeping its permanent
+# clone as it is, or retire a secondmate home; kill the recorded runtime endpoint,
 # clear volatile state, and transition this home's backlog item for ship and
 # scout tasks before reporting success (a secondmate teardown transitions none,
 # since secondmates are not backlog items), then refresh/prune the project's
@@ -340,7 +341,8 @@ for _teardown_source in \
   fm-nm-run-lib.sh \
   fm-wake-lib.sh \
   fm-path-lib.sh \
-  fm-lease-lib.sh
+  fm-lease-lib.sh \
+  fm-workbench-lib.sh
 do
   teardown_require_source "$SCRIPT_DIR/$_teardown_source"
 done
@@ -402,6 +404,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 # leases).
 # shellcheck source=bin/fm-lease-lib.sh
 . "$SCRIPT_DIR/fm-lease-lib.sh"
+# shellcheck source=bin/fm-workbench-lib.sh
+. "$SCRIPT_DIR/fm-workbench-lib.sh"
 # Role partition: forced teardown discards work, and the supervision branch
 # never discards anything - only an ordinary landed-work teardown is branch
 # territory (contract: bin/fm-lease-lib.sh).
@@ -412,14 +416,15 @@ fi
 fm_lease_guard "$ID" "teardown (fm-teardown)"
 
 META="$STATE/$ID.meta"
-# A workbench-mode task works in a permanent clone. The worktree cleanup below
-# detaches HEAD, deletes the task branch and removes the directory's
-# .claude/settings.local.json, all of which would damage that clone, and the
-# workbench cleanup path is not built yet (docs/nexon/adaptation-plan.md
-# Phase 1 step 9). Refuse before anything is touched.
+# A workbench-mode task works in a permanent clone (config/workspace,
+# bin/fm-workbench.sh). Its cleanup keeps the clone exactly as it is: no
+# process sweep by working directory (other agents work there), no detach, no
+# branch deletion, no pool return, and no removal of the clone's own
+# .claude/settings.local.json. It releases the task's lease instead, once the
+# endpoint is closed.
+TEARDOWN_WORKBENCH=0
 if [ -f "$META" ] && [ ! -L "$META" ] && [ "$(fm_meta_get "$META" workspace)" = workbench ]; then
-  echo "REFUSED: task $ID works in workbench clone $(fm_meta_get "$META" worktree), and workbench cleanup is not implemented yet; nothing was changed. Stop the worker by hand, then release its lease with: bin/fm-workbench.sh release --force $ID" >&2
-  exit 1
+  TEARDOWN_WORKBENCH=1
 fi
 TREEHOUSE_PROJECT_LOCK=
 TREEHOUSE_PROJECT_LOCK_HELD=0
@@ -3395,6 +3400,31 @@ if [ "$KIND" = scout ] && [ "$FORCE" != "--force" ]; then
   fi
 fi
 
+# A workbench scout reads a permanent clone and must leave it as it found it:
+# clean beyond the Switch-Site configs, on its idle branch. Cleanup never
+# restores or discards anything in the clone, so a changed clone refuses for the
+# captain to inspect; --force cleans up the task and leaves the clone as it is,
+# which the next lease then refuses. Only scouts run in workbench mode yet.
+if [ "$TEARDOWN_WORKBENCH" = 1 ]; then
+  if [ "$KIND" != scout ]; then
+    echo "REFUSED: workbench task $ID is a $KIND; workbench cleanup supports scouts only, as workbench spawn does. Nothing was changed." >&2
+    exit 1
+  fi
+  if [ "$FORCE" != "--force" ] && [ -d "$WT" ]; then
+    if ! WORKBENCH_DIRT=$(fm_workbench_clone_dirt "$WT") || ! WORKBENCH_OFF=$(fm_workbench_clone_off_idle "$WT"); then
+      echo "REFUSED: cannot inspect workbench clone $WT; nothing was changed." >&2
+      exit 1
+    fi
+    if [ -n "$WORKBENCH_DIRT" ] || [ -n "$WORKBENCH_OFF" ]; then
+      echo "REFUSED: scout task $ID left workbench clone $WT changed; cleanup never restores or discards anything in a permanent clone, so nothing was changed." >&2
+      [ -z "$WORKBENCH_OFF" ] || echo "branch: $WORKBENCH_OFF" >&2
+      [ -z "$WORKBENCH_DIRT" ] || printf 'uncommitted changes:\n%s\n' "$(printf '%s\n' "$WORKBENCH_DIRT" | head -5)" >&2
+      echo "Restore the clone by hand after the captain has looked, or with the captain's OK clean up the task anyway with --force, which leaves the clone as it is." >&2
+      exit 1
+    fi
+  fi
+fi
+
 # A public commitment is not kept until its final reply lands in the ORIGINAL
 # thread, and this cleanup removes the task records that make the promise
 # reconcilable. Refuse while this home still owes a public reply for exactly this
@@ -3558,7 +3588,11 @@ fi
 # kind=secondmate: a secondmate home's own runtime lifecycle is owned by the
 # dedicated process-event and firstmate-home removal machinery further below,
 # not by task-worktree cleanup.
-if [ "$KIND" != secondmate ] && teardown_owns_worktree; then
+if [ "$TEARDOWN_WORKBENCH" = 1 ]; then
+  # Other agents and the captain work in the permanent clone, so only the
+  # task's own temp root is swept; the endpoint close below stops the worker.
+  reap_task_worktree_processes tasktmp "$TASK_TMP"
+elif [ "$KIND" != secondmate ] && teardown_owns_worktree; then
   conclude_task_no_mistakes_run "$WT"
   reap_task_worktree_processes worktree "$WT" "$TASK_TMP"
 elif [ "$KIND" != secondmate ]; then
@@ -3591,6 +3625,8 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
       || { endpoint_close_refusal "$ID" "$BACKEND" "$T" 0; exit 1; }
   fi
   fm_backend_remove_worktree "$BACKEND" "$ORCA_WORKTREE_ID"
+elif [ "$TEARDOWN_WORKBENCH" = 1 ]; then
+  : # The permanent clone is kept exactly as it is; its lease is released below.
 elif [ "$KIND" != secondmate ] && ! teardown_owns_worktree; then
   :
 elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
@@ -3713,6 +3749,16 @@ if [ "$BACKEND" = herdr ]; then
     exit 1
   fi
 fi
+# The worker is stopped, so the clone is free for the next task. --force
+# because the task record still exists until the backlog transition below; a
+# rerun after a later failure finds no lease and proceeds.
+if [ "$TEARDOWN_WORKBENCH" = 1 ]; then
+  if ! FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVERRIDE="$CONFIG" \
+      "$SCRIPT_DIR/fm-workbench.sh" release --force "$ID" >/dev/null; then
+    echo "error: $ID's worker is stopped, but its workbench lease could not be released; retaining every durable task record - rerun teardown" >&2
+    exit 1
+  fi
+fi
 if [ "$KIND" != secondmate ]; then
   if ! FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
       "$SCRIPT_DIR/fm-inactive-reconcile.sh" report "$ID"; then
@@ -3784,6 +3830,7 @@ rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
   "$STATE/$ID.control-relaunch" "$STATE/$ID.control-relaunch.meta-prior" \
   "$STATE/$ID.control-relaunch.brief-prior" "$STATE/$ID.control-relaunch.note" \
   "$STATE/$ID.reconcile-nudged" "$STATE/$ID.gemini-settings.json" "$STATE/$ID.devin-config.json" \
+  "$STATE/$ID.claude-settings.json" \
   "$STATE/.$ID.branch-outcome-index" \
   "$STATE/.secondmate-relaunch-$ID" "$STATE/.secondmate-relaunch-bound-$ID"
 # The steering inbox (bin/fm-task-inbox-lib.sh) is runtime state for the
@@ -3848,6 +3895,8 @@ if [ -d "$STATE" ]; then
 fi
 if [ "$TEARDOWN_LEGACY_ACCEPTED" = 1 ]; then
   echo "teardown $ID complete (window ${T:-none}, worktree $WT, legacy record accepted without spawn_gen: endpoint $TEARDOWN_LEGACY_ENDPOINT, incarnation $TEARDOWN_META_SPAWN_GEN)"
+elif [ "$TEARDOWN_WORKBENCH" = 1 ]; then
+  echo "teardown $ID complete (window ${T:-none}; workbench clone $WT kept as it is, lease released)"
 elif teardown_owns_worktree; then
   echo "teardown $ID complete (window ${T:-none}, worktree $WT)"
 else

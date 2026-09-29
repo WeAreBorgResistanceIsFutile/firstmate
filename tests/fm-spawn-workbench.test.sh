@@ -122,19 +122,67 @@ test_a_scout_launches_in_the_leased_clone_and_leaves_it_untouched() {
   jq -e --arg k "$trust_key" '.projects[$k].hasTrustDialogAccepted == true' "$HOME_DIR/user-home/.claude.json" >/dev/null ||
     fail "trust was not pre-registered under the key $trust_key: $(jq -c '.projects | keys' "$HOME_DIR/user-home/.claude.json")"
 
-  # Worktree cleanup would detach, delete the branch and remove the clone's own
-  # settings file; until workbench cleanup exists it must refuse outright.
-  out=$(FM_ROOT_OVERRIDE='' FM_HOME="$HOME_DIR" HOME="$HOME_DIR/user-home" \
+  # Cleanup keeps the clone exactly as it is and releases the lease: no
+  # detach, no branch deletion, no pool return, and the clone's own settings
+  # file survives byte for byte.
+  local status_before
+  status_before=$(git -C "$CLONE" status --porcelain)
+  finish_scout "$id"
+  out=$(run_teardown "$id")
+  status=$?
+  expect_code 0 "$status" "cleanup of a workbench scout should succeed"$'\n'"$out"
+  assert_contains "$out" "workbench clone" "cleanup did not report the kept clone"
+  assert_absent "$HOME_DIR/state/$id.meta" "cleanup left the task record"
+  assert_absent "$CASE_DIR/locks/wa-nexon4.lease" "cleanup left the clone leased"
+  assert_absent "$settings_file" "cleanup left the task's hooks file"
+  assert_equals "$(git -C "$CLONE" rev-parse HEAD)" "$head_before" "cleanup moved the clone's HEAD"
+  assert_equals "$(git -C "$CLONE" symbolic-ref --short HEAD)" "$(git -C "$CLONE" symbolic-ref --short refs/remotes/origin/HEAD | sed 's#^origin/##')" \
+    "cleanup took the clone off its idle branch"
+  assert_equals "$(git -C "$CLONE" status --porcelain)" "$status_before" "cleanup changed the clone's working tree"
+  assert_equals "$(cat "$CLONE/.claude/settings.local.json")" "$settings_before" \
+    "cleanup changed the clone's own settings.local.json"
+  pass 'a workbench scout launches in its leased clone, and cleanup releases it untouched'
+}
+
+# A scout's deliverable: its report and a completed captain-call inventory.
+finish_scout() {  # <id>
+  mkdir -p "$HOME_DIR/data/$1"
+  printf '# report\n' > "$HOME_DIR/data/$1/report.md"
+  FM_ROOT_OVERRIDE='' FM_HOME="$HOME_DIR" FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
+    FM_CONFIG_OVERRIDE="$HOME_DIR/config" PATH="$FAKEBIN:$PATH" \
+    "$ROOT/bin/fm-captain-hold.sh" complete "$1" --none >/dev/null || fail "could not record the scout's captain-call inventory"
+}
+
+run_teardown() {  # <args>...
+  FM_WORKBENCH_LEASE_DIR="$CASE_DIR/locks" FM_ROOT_OVERRIDE='' FM_HOME="$HOME_DIR" HOME="$HOME_DIR/user-home" \
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
-    TMUX="${TMUX:-fake,1,0}" PATH="$FAKEBIN:$PATH" "$ROOT/bin/fm-teardown.sh" "$id" 2>&1)
+    TMUX="${TMUX:-fake,1,0}" PATH="$FAKEBIN:$PATH" "$ROOT/bin/fm-teardown.sh" "$@" 2>&1
+}
+
+test_cleanup_refuses_a_scout_that_changed_the_clone() {
+  local rec id out status
+  id=wb-changed
+  rec=$(make_case changed claude "$id")
+  read_case "$rec"
+  out=$(run_spawn "$id" Nexon4 --scout)
+  expect_code 0 $? "the workbench scout should launch"$'\n'"$out"
+  finish_scout "$id"
+  printf 'scout scribble\n' > "$CLONE/notes.txt"
+  out=$(run_teardown "$id")
   status=$?
-  [ "$status" -ne 0 ] || fail "cleanup ran on a workbench task"$'\n'"$out"
-  assert_contains "$out" "workbench cleanup is not implemented yet" "cleanup did not name the refusal"
-  assert_equals "$(cat "$CLONE/.claude/settings.local.json")" "$settings_before" \
-    "the refused cleanup changed the clone's own settings.local.json"
+  [ "$status" -ne 0 ] || fail "cleanup accepted a clone the scout changed"$'\n'"$out"
+  assert_contains "$out" "left workbench clone" "the refusal does not name the changed clone"
+  assert_contains "$out" "notes.txt" "the refusal does not show the change"
   assert_present "$HOME_DIR/state/$id.meta" "the refused cleanup removed the task record"
-  pass 'a workbench scout launches in its leased clone and leaves the clone untouched'
+  assert_present "$CASE_DIR/locks/wa-nexon4.lease" "the refused cleanup released the lease"
+  assert_equals "$(cat "$CLONE/notes.txt")" "scout scribble" "the refused cleanup touched the change"
+
+  out=$(run_teardown "$id" --force)
+  expect_code 0 $? "a forced cleanup should succeed"$'\n'"$out"
+  assert_absent "$CASE_DIR/locks/wa-nexon4.lease" "the forced cleanup left the clone leased"
+  assert_equals "$(cat "$CLONE/notes.txt")" "scout scribble" "the forced cleanup discarded the change"
+  pass 'cleanup refuses a scout that changed its clone, and --force keeps the change'
 }
 
 test_a_non_claude_worker_is_refused_and_the_lease_released() {
@@ -222,3 +270,4 @@ test_an_abort_after_the_lease_releases_it() {
 }
 
 test_an_abort_after_the_lease_releases_it
+test_cleanup_refuses_a_scout_that_changed_the_clone
