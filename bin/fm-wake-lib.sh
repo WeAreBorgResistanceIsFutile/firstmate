@@ -92,6 +92,24 @@ fm_pid_identity() {
   # Git Bash/MSYS exposes these compatible files but its Cygwin ps rejects the
   # portable fallback's -o fields, so capability detection must not key on uname.
   if [ -r "$proc_root/$pid/stat" ] && [ -r "$proc_root/$pid/cmdline" ]; then
+    # Cygwin/MSYS re-derives field 22 on every read from a boot time that
+    # shifts with clock adjustments, so a live process's value drifts by
+    # ticks over hours and a recorded identity stops matching. The /proc/<pid>
+    # directory's mtime is the start time Cygwin recorded once at creation.
+    case "$_FM_UNAME" in
+      MSYS* | MINGW* | CYGWIN*)
+        if [ -z "${FM_PROC_ROOT_OVERRIDE:-}" ]; then
+          starttime=$(stat -c %Y "$proc_root/$pid" 2>/dev/null) || return 1
+          case "$starttime" in
+            ''|*[!0-9]*) return 1 ;;
+          esac
+          cmdline_hex=$(od -An -v -tx1 "$proc_root/$pid/cmdline" 2>/dev/null | tr -d '[:space:]') || return 1
+          [ -n "$cmdline_hex" ] || return 1
+          printf 'msys-starttime=%s cmdline-hex=%s\n' "$starttime" "$cmdline_hex"
+          return 0
+        fi
+        ;;
+    esac
     stat_line=$(cat "$proc_root/$pid/stat" 2>/dev/null) || return 1
     # After the final comm delimiter, array index 19 is proc stat field 22.
     read -r -a stat_fields <<< "${stat_line##*)}"

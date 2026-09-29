@@ -1526,7 +1526,7 @@ test_stale_watch_reclaim_publishes_before_clear() {
 }
 
 test_msys_pid_identity_uses_proc() {
-  local live identity
+  local live identity recorded
   case "$(uname)" in
     MSYS*|MINGW*|CYGWIN*) ;;
     *)
@@ -1537,13 +1537,14 @@ test_msys_pid_identity_uses_proc() {
   sleep 300 &
   live=$!
   identity=$(bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$live" 2>/dev/null)
+  recorded=$(stat -c %Y "/proc/$live" 2>/dev/null)
   kill "$live" 2>/dev/null || true
   wait "$live" 2>/dev/null || true
   case "$identity" in
-    proc-starttime=*" cmdline-hex="*) ;;
-    *) fail "MSYS process identity did not use compatible /proc fields ('$identity')" ;;
+    "msys-starttime=$recorded cmdline-hex="*) ;;
+    *) fail "MSYS process identity did not use the recorded /proc start time ('$identity')" ;;
   esac
-  pass "MSYS process identity uses compatible /proc fields"
+  pass "MSYS process identity uses the recorded /proc start time"
 }
 
 test_wait_deadline_reaps_a_stopped_child
