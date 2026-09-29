@@ -376,7 +376,17 @@ fm_control_harness_wiring_paths() {  # <harness> <worktree> <state-dir> <id>
   local harness=${1-} wt=${2-} state=${3-} id=${4-}
   [ -n "$wt" ] && [ -n "$state" ] && [ -n "$id" ] || return 1
   case "$harness" in
-    claude) printf '%s\n' "$wt/.claude/settings.local.json" ;;
+    claude)
+      # A workbench-mode task carries its hooks in a firstmate-owned file passed
+      # with --settings; the clone's own settings.local.json is then the clone's,
+      # never this task's wiring, and must survive a relaunch.
+      if [ -f "$state/$id.claude-settings.json" ] ||
+        grep -qx 'workspace=workbench' "$state/$id.meta" 2>/dev/null; then
+        printf '%s\n' "$state/$id.claude-settings.json"
+      else
+        printf '%s\n' "$wt/.claude/settings.local.json"
+      fi
+      ;;
     opencode) printf '%s\n' "$wt/.opencode/plugins/fm-busy-state.js" ;;
     pi|pi-signed) printf '%s\n' "$state/$id.pi-ext.ts" ;;
     omp) printf '%s\n' "$state/$id.omp-ext.ts" ;;

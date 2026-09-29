@@ -812,6 +812,7 @@ Any other value is reported by bootstrap as `CONFIG: config/workspace is invalid
 `bin/fm-workbench.sh discover` builds the workbench pool from IIS's `applicationHost.config`: every application serving a `\Frontend\Source\Nexon.Web` folder of a git clone is one workbench, whose root is the clone's parent folder and whose id is that folder's lowercased name.
 A discovered workbench stays `new` until `bin/fm-workbench.sh confirm <id>` records the captain's confirmation.
 `bin/fm-workbench.sh lease <task> <repo> [<workbench>]` leases one confirmed workbench's `<root>\<repo>` clone to a task; the script header owns the cleanliness rule, the one-workbench-per-task rule, and the exit codes.
+In workbench mode `bin/fm-spawn.sh` takes a repo name as its project argument, leases the clone itself, and launches a claude worker in it; the worker's hooks travel in `state/<id>.claude-settings.json` through `--settings`, so the clone's own `.claude/settings.local.json` is never written. The spawn header owns the details.
 The workbench spawn, lease, and cleanup behavior is being built on the Nexon fork and is described in [`docs/nexon/adaptation-plan.md`](nexon/adaptation-plan.md).
 
 ## Claude permission mode (config/claude-permission-mode)

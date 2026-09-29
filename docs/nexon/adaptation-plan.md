@@ -133,17 +133,28 @@ without the worker changing anything.
    for the same task leases the same workbench's clone; `release <task>`;
    `status`. If no workbench has a clone of `<repo>`, it stops and reports that
    (the captain decides where to clone it — Phase 2 step 1).
-7. **Spawn in workbench mode** (`bin/fm-spawn.sh`): the seam is the branch that
+7. **Spawn in workbench mode** *(Done 2026-09-29, not live-tested:
+   `tests/fm-spawn-workbench.test.sh`.)* (`bin/fm-spawn.sh`): the seam is the branch that
    types `treehouse get` and polls for an isolated worktree. Workbench mode
    replaces it with: lease → `cd` into the leased `<root>\<repo>` clone →
    assert the pane is in exactly that clone. It skips the Treehouse project lock, the pool-slot claim
-   and `freshen_spawn_worktree_base` (which runs `git reset --hard`).
-8. **Hooks without clobbering.** Merge the busy/idle hooks into the clone's
-   existing `.claude/settings.local.json` (back it up first) instead of `cat >`;
-   restore the backup byte-for-byte at cleanup.
+   and `freshen_spawn_worktree_base` (which runs `git reset --hard`). The
+   project argument is a repo name (`--workbench <id>` pins one); Claude trust
+   is pre-registered through `fm-claude-trust.sh --workbench-clone`, whose
+   scope proof is the task's lease; claude workers only.
+8. **Hooks without clobbering.** *(Decided 2026-09-29, captain: replaced by
+   `--settings`, done with step 7.)* The busy/idle hooks, `feedbackDrafts` and
+   attribution go into a firstmate-owned `state/<id>.claude-settings.json`
+   passed with `claude --settings`; the clone's `.claude/settings.local.json` is
+   never written, so there is nothing to back up or restore. Merging into that
+   file was rejected: Claude reloads it, so any other session in the clone
+   would fire the task's hooks. A relaunch retires the state file, never the
+   clone's (`fm-control-lib.sh :: fm_control_harness_wiring_paths`). Live check
+   still open: hooks passed with `--settings` fire alongside the clone's own.
 9. **Cleanup in workbench mode** (`bin/fm-teardown.sh`): no `checkout --detach`,
-   no `branch -D`, no `treehouse return`; release the lease; restore the hooks
-   file.
+   no `branch -D`, no `treehouse return`, and no `rm` of the clone's
+   `.claude/settings.local.json`; release the lease; remove
+   `state/<id>.claude-settings.json`.
 10. **Form of address chosen by the user.** `AGENTS.md` hard-codes "captain" as
     the mandatory chat address. Replace that with the user's own choice: at
     setup (a session start whose `data/captain.md` has no form of address yet)

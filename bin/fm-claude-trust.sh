@@ -174,6 +174,7 @@ unset CDPATH \
 usage() {
   echo "usage: fm-claude-trust.sh <worktree> <project>" >&2
   echo "       fm-claude-trust.sh --secondmate-home <home> <id>" >&2
+  echo "       fm-claude-trust.sh --workbench-clone <clone> <lease-file> <id>" >&2
   exit 2
 }
 
@@ -188,6 +189,20 @@ case "${1:-}" in
     SUB_ID=$3
     PROJ_ARG=
     SCOPE_NOUN="secondmate home"
+    ;;
+  --workbench-clone)
+    # A leased workbench clone (bin/fm-workbench.sh) is a repository's primary
+    # checkout by design, so the worktree test would refuse it. Its scope proof
+    # is the lease instead: a regular file this user owns naming this task and
+    # exactly this clone. The clone is its own canonical project root, so the
+    # store write below is the worktree-mode write with both entries the same.
+    [ "$#" -eq 4 ] || usage
+    MODE=workbench-clone
+    TARGET_ARG=$2
+    LEASE_ARG=$3
+    SUB_ID=$4
+    PROJ_ARG=
+    SCOPE_NOUN="workbench clone"
     ;;
   '' | -h | --help)
     usage
@@ -257,7 +272,23 @@ if [ -n "${HOME:-}" ]; then
   [ "$TARGET_REAL" != "${HOME_REAL:-}" ] || refuse "'$TARGET_REAL' is the home directory, not a $SCOPE_NOUN"
 fi
 
-if [ "$MODE" = worktree ]; then
+if [ "$MODE" = workbench-clone ]; then
+  WB_TOP=$(git -C "$TARGET_REAL" rev-parse --show-toplevel 2>/dev/null) || true
+  [ -n "$WB_TOP" ] || refuse "'$TARGET_REAL' is not inside a git repository"
+  WB_TOP_REAL=$(real_dir "$WB_TOP") || true
+  [ "$WB_TOP_REAL" = "$TARGET_REAL" ] || refuse "'$TARGET_REAL' is not a clone root (its root is '${WB_TOP_REAL:-unresolvable}')"
+  [ -n "$SUB_ID" ] || refuse "no task id was supplied, so the lease on '$TARGET_REAL' cannot be matched"
+  [ ! -L "$LEASE_ARG" ] || refuse "lease '$LEASE_ARG' is a symlink; a workbench lease is a regular file"
+  [ -f "$LEASE_ARG" ] || refuse "no workbench lease at '$LEASE_ARG'"
+  [ -O "$LEASE_ARG" ] || refuse "lease '$LEASE_ARG' is not owned by this user"
+  WB_TASK=$(sed -n 's/^task=//p' "$LEASE_ARG" | head -n 1)
+  [ "$WB_TASK" = "$SUB_ID" ] || refuse "lease '$LEASE_ARG' names task '${WB_TASK:-none}', not '$SUB_ID'"
+  WB_CLONE=$(sed -n 's/^clone=//p' "$LEASE_ARG" | head -n 1 | tr -d '\r')
+  command -v cygpath >/dev/null 2>&1 && [ -n "$WB_CLONE" ] && WB_CLONE=$(cygpath -u "$WB_CLONE")
+  WB_CLONE_REAL=$(real_dir "$WB_CLONE") || true
+  [ "$WB_CLONE_REAL" = "$TARGET_REAL" ] || refuse "lease '$LEASE_ARG' is for clone '${WB_CLONE:-none}', not '$TARGET_REAL'"
+  PROJ_CANON=$TARGET_REAL
+elif [ "$MODE" = worktree ]; then
   WT_TOP=$(git -C "$TARGET_REAL" rev-parse --show-toplevel 2>/dev/null) || true
   [ -n "$WT_TOP" ] || refuse "'$TARGET_REAL' is not inside a git repository"
   WT_TOP_REAL=$(real_dir "$WT_TOP") || true
@@ -413,8 +444,8 @@ fi
 # consent the human was never asked for.
 TRUST_FLAG='hasTrustDialogAccepted'
 IMPORT_FLAGS='["hasClaudeMdExternalIncludesApproved","hasClaudeMdExternalIncludesWarningShown"]'
-if [ "$MODE" = worktree ]; then
-  WRITE_ARGS=("$STORE" "$MODE" "$TARGET_REAL" "$PROJ_CANON" "$TRUST_FLAG" "$IMPORT_FLAGS")
+if [ "$MODE" = worktree ] || [ "$MODE" = workbench-clone ]; then
+  WRITE_ARGS=("$STORE" worktree "$TARGET_REAL" "$PROJ_CANON" "$TRUST_FLAG" "$IMPORT_FLAGS")
 else
   WRITE_ARGS=("$STORE" "$MODE" "$TARGET_REAL" "" "$TRUST_FLAG" "$IMPORT_FLAGS")
 fi
@@ -539,7 +570,7 @@ console.error(`error: ${store} did not retain trust for ${target}${project ? ` a
 process.exit(1);
 NODE
 then
-  if [ "$MODE" = worktree ]; then
+  if [ "$MODE" = worktree ] || [ "$MODE" = workbench-clone ]; then
     refuse "could not record trust for '$TARGET_REAL' and project '$PROJ_CANON' in '$STORE'"
   else
     refuse "could not record trust for '$TARGET_REAL' in '$STORE'"

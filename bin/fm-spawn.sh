@@ -31,6 +31,15 @@
 #   loud one-line deviation notice is printed and the spawn continues.
 #   no-mistakes-prod-only is a registry policy rather than a task mode and is
 #   refused as a flag value.
+#   In workbench mode (config/workspace = workbench, docs/configuration.md
+#   "Workspace mode") a ship or scout names a repo, not a directory, as
+#   <project-dir>, and `--workbench <id>` optionally pins the workbench. The spawn
+#   leases that repo's clone through bin/fm-workbench.sh (refusals included) and
+#   launches in it: no Treehouse, no pool slot, no base refresh, and nothing
+#   written into the clone. Only claude workers are supported there; their hooks
+#   ride a firstmate-owned state/<id>.claude-settings.json passed with
+#   --settings. A spawn that fails before its task record exists releases the
+#   lease again.
 #   --branch-prefix is the optional prefix selected at intake for this ship's
 #   immutable branch, defaulting to "fm/". It must agree with the branch recorded
 #   in the brief, and is refused on scouts, secondmates, and relaunches. When the
@@ -522,6 +531,8 @@ PROJECTS="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 # shellcheck source=bin/fm-config-inherit-lib.sh
 . "$SCRIPT_DIR/fm-config-inherit-lib.sh"
+# shellcheck source=bin/fm-workbench-lib.sh
+. "$SCRIPT_DIR/fm-workbench-lib.sh"
 if ! LAUNCH_ENV_ENABLED=$(fm_config_source_present "$CONFIG/launch-env-allowlist"); then
   exit 1
 fi
@@ -652,6 +663,7 @@ MODE_SET=0
 YOLO_SET=0
 BRANCH_PREFIX_SET=0
 TRACEPARENT_SET=0
+WORKBENCH_ARG=
 RELAUNCH=0
 POS=()
 want_value=
@@ -695,6 +707,9 @@ for a in "$@"; do
     traceparent)
       TRACEPARENT_ARG=$a
       TRACEPARENT_SET=1
+      ;;
+    workbench)
+      WORKBENCH_ARG=$a
       ;;
     *)
       echo "error: internal parser state for --$want_value" >&2
@@ -754,6 +769,8 @@ for a in "$@"; do
     TRACEPARENT_ARG=${a#--traceparent=}
     TRACEPARENT_SET=1
     ;;
+  --workbench) want_value=workbench ;;
+  --workbench=*) WORKBENCH_ARG=${a#--workbench=} ;;
   *) POS+=("$a") ;;
   esac
 done
@@ -1194,6 +1211,15 @@ SPAWN_TASK_SET_LOCK_HELD=0
 SPAWN_TREEHOUSE_PROJECT_LOCK=
 SPAWN_TREEHOUSE_PROJECT_LOCK_HELD=0
 SPAWN_SLOT_CLAIMED=0
+# Workbench mode (config/workspace = workbench, bin/fm-workbench-lib.sh): a
+# ship or scout works in a leased permanent clone instead of a Treehouse
+# worktree. SPAWN_LEASE_TAKEN marks a lease this spawn took, released again by
+# an abort that leaves no task record.
+WORKBENCH=0
+WORKBENCH_ID=
+WORKBENCH_REPO=
+WORKBENCH_LEASE=
+SPAWN_LEASE_TAKEN=0
 RELAUNCH_REPLACEMENT_PENDING=0
 RELAUNCH_REPLACEMENT_BUSY_GEN=
 RELAUNCH_REPLACEMENT_HARNESS=
@@ -1349,6 +1375,16 @@ spawn_abort_cleanup() {
   if [ "$SPAWN_TREEHOUSE_PROJECT_LOCK_HELD" = 1 ]; then
     SPAWN_TREEHOUSE_PROJECT_LOCK_HELD=0
     fm_lock_release "$SPAWN_TREEHOUSE_PROJECT_LOCK" || true
+  fi
+  # A lease this spawn took is the task's only claim on the clone until its
+  # record exists; without a record nothing would ever release it.
+  if [ "$SPAWN_LEASE_TAKEN" = 1 ] && [ "$status" -ne 0 ] &&
+    [ ! -e "$STATE/$ID.meta" ] && [ ! -L "$STATE/$ID.meta" ]; then
+    SPAWN_LEASE_TAKEN=0
+    FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+      "$FM_ROOT/bin/fm-workbench.sh" release "$ID" >/dev/null ||
+      echo "warning: could not release task $ID's workbench lease after the aborted spawn; run: bin/fm-workbench.sh release $ID" >&2
+    rm -f "$STATE/$ID.claude-settings.json" 2>/dev/null || true
   fi
   if [ "$SPAWN_TASK_SET_LOCK_HELD" = 1 ]; then
     SPAWN_TASK_SET_LOCK_HELD=0
@@ -2980,11 +3016,71 @@ if [ "$KIND" = secondmate ]; then
     BRIEF="$DATA/$ID/brief.md"
   fi
 else
-  PROJ_ABS="$(cd "$(resolve_project_dir_arg "$PROJ")" && pwd)"
+  if [ "$RELAUNCH" -eq 1 ]; then
+    [ "$(fm_meta_get "$RELAUNCH_META" workspace)" != workbench ] || WORKBENCH=1
+  elif [ "$(fm_workspace_mode "$CONFIG")" = workbench ]; then
+    WORKBENCH=1
+  fi
+  if [ "$WORKBENCH" = 1 ]; then
+    # Only claude is wired to keep its hooks out of the clone (--settings with a
+    # firstmate-owned file below); every other adapter writes hook files into
+    # the task directory, which here is a permanent clone.
+    case "$HARNESS" in
+    claude*) ;;
+    *)
+      echo "error: workbench mode supports claude workers only; '$HARNESS' would write its hook files into the permanent clone" >&2
+      exit 1
+      ;;
+    esac
+    [ "$BACKEND" != orca ] || {
+      echo "error: workbench mode does not support the orca backend, which creates its own worktree" >&2
+      exit 1
+    }
+  fi
+  if [ "$WORKBENCH" = 1 ] && [ "$RELAUNCH" -eq 1 ]; then
+    WORKBENCH_ID=$(fm_meta_get "$RELAUNCH_META" workbench)
+    WORKBENCH_REPO=$(fm_meta_get "$RELAUNCH_META" workbench_repo)
+    PROJ_ABS="$(cd "$(resolve_project_dir_arg "$PROJ")" && pwd)"
+  elif [ "$WORKBENCH" = 1 ]; then
+    # The project argument names a repo, and the lease picks the workbench
+    # clone of it (bin/fm-workbench.sh owns the pool, cleanliness and refusals).
+    case "$PROJ" in
+    '' | */* | *\\*)
+      echo "error: in workbench mode the project argument is a repo name such as Nexon4, not a path ('$PROJ')" >&2
+      exit 1
+      ;;
+    esac
+    lease_out=$(FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+      "$FM_ROOT/bin/fm-workbench.sh" lease "$ID" "$PROJ" ${WORKBENCH_ARG:+"$WORKBENCH_ARG"}) || exit 1
+    SPAWN_LEASE_TAKEN=1
+    lease_line=$(printf '%s\n' "$lease_out" | sed -n 's/^leased: //p' | head -n 1)
+    WORKBENCH_ID=${lease_line%% *}
+    lease_rest=${lease_line#* }
+    WORKBENCH_REPO=${lease_rest%% *}
+    lease_clone=${lease_rest#* }
+    if [ -z "$WORKBENCH_ID" ] || [ -z "$lease_clone" ]; then
+      echo "error: could not read the workbench lease for $ID from: $lease_out" >&2
+      exit 1
+    fi
+    PROJ_ABS="$(cd "$(_fm_workbench_posix_path "$lease_clone")" && pwd)" || {
+      echo "error: leased clone '$lease_clone' is not an accessible directory" >&2
+      exit 1
+    }
+  else
+    [ -z "$WORKBENCH_ARG" ] || {
+      echo "error: --workbench applies only when config/workspace is workbench" >&2
+      exit 1
+    }
+    PROJ_ABS="$(cd "$(resolve_project_dir_arg "$PROJ")" && pwd)"
+  fi
   WT=""
+  [ "$WORKBENCH" != 1 ] || [ "$RELAUNCH" -eq 1 ] || WT=$PROJ_ABS
+  if [ "$WORKBENCH" = 1 ]; then
+    WORKBENCH_LEASE="$STATE/workbench-$WORKBENCH_ID-$(printf '%s' "$WORKBENCH_REPO" | tr '[:upper:]' '[:lower:]').lease"
+  fi
   BRIEF="$DATA/$ID/brief.md"
 fi
-if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
+if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ] && [ "$WORKBENCH" != 1 ]; then
   SPAWN_TREEHOUSE_PROJECT_LOCK=$(fm_treehouse_project_lock_path "$PROJ_ABS") || {
     echo "error: could not resolve the shared Treehouse project lock for $PROJ_ABS" >&2
     exit 1
@@ -3245,8 +3341,29 @@ spawn_worktree_isolated() { # <path>
   return 0
 }
 
+# Workbench mode's replacement for the isolation guard. The leased clone IS the
+# task directory and is the repository's primary checkout by design, so the
+# isolation predicate cannot apply; what must hold instead is that the directory
+# is exactly a git clone root and that the lease on it names this task.
+validate_workbench_clone() { # <source> <inspect-target>
+  local source=$1 inspect_target=$2 top
+  top=$(git -C "$WT" rev-parse --show-toplevel 2>/dev/null || true)
+  if [ -z "$top" ] || [ "$(real_path_or_raw "$top")" != "$(real_path_or_raw "$WT")" ]; then
+    echo "error: $source: workbench clone '$WT' is not a git clone root (root '${top:-none}'); refusing to launch. Inspect target $inspect_target" >&2
+    exit 1
+  fi
+  if [ ! -f "$WORKBENCH_LEASE" ] || [ "$(sed -n 's/^task=//p' "$WORKBENCH_LEASE" | head -n 1)" != "$ID" ]; then
+    echo "error: $source: workbench lease '$WORKBENCH_LEASE' does not name task $ID; refusing to launch in a clone this task does not hold. Inspect target $inspect_target" >&2
+    exit 1
+  fi
+}
+
 validate_spawn_worktree() { # <source> <inspect-target>
   local source=$1 inspect_target=$2
+  if [ "$WORKBENCH" = 1 ]; then
+    validate_workbench_clone "$source" "$inspect_target"
+    return 0
+  fi
   if ! spawn_worktree_isolated "$WT"; then
     echo "error: $source did not yield an isolated worktree (resolved '$WT'; worktree root '${SPAWN_WT_TOP:-none}'; spawning project '$PROJ_ABS'); refusing to launch to avoid tangling the primary checkout. Inspect target $inspect_target" >&2
     exit 1
@@ -4217,6 +4334,9 @@ elif [ "$RELAUNCH" -eq 1 ]; then
     fi
   fi
   [ "$KIND" = secondmate ] || validate_spawn_worktree "relaunch" "$T"
+elif [ "$WORKBENCH" = 1 ]; then
+  # No worktree is acquired: the leased clone is the task directory.
+  validate_workbench_clone "workbench lease" "$T"
 elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   spawn_send_text_line "$WT_TARGET" 'treehouse get'
 
@@ -4299,7 +4419,9 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
     SPAWN_SLOT_CLAIMED=1
   fi
 fi
-if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
+# A workbench clone is never refreshed here: the base refresh ends in
+# `git reset --hard`, and the worker's brief owns branching in a permanent clone.
+if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] && [ "$WORKBENCH" != 1 ]; then
   freshen_spawn_worktree_base "$WT" || exit 1
 fi
 
@@ -4340,7 +4462,11 @@ claude*)
   if [ "$KIND" = secondmate ]; then
     spawn_trust_args=(--secondmate-home "$PROJ_ABS" "$ID")
   else
-    spawn_trust_args=("$WT" "$PROJ_ABS")
+    if [ "$WORKBENCH" = 1 ]; then
+      spawn_trust_args=(--workbench-clone "$WT" "$WORKBENCH_LEASE" "$ID")
+    else
+      spawn_trust_args=("$WT" "$PROJ_ABS")
+    fi
   fi
   if ! "$FM_ROOT/bin/fm-claude-trust.sh" "${spawn_trust_args[@]}" >/dev/null; then
     echo "error: could not pre-register Claude workspace trust for $WT; refusing to launch a claude worker that would wedge on the trust dialog; inspect window $T" >&2
@@ -4466,17 +4592,23 @@ if [ "$KIND" != secondmate ]; then
     # the turn-ended NOTIFICATION touch for the watcher. Every
     # hook command tolerates a refused event (|| true) so a stale-gen writer
     # can never break Claude's own lifecycle.
-    mkdir -p "$WT/.claude"
+    [ "$WORKBENCH" = 1 ] || mkdir -p "$WT/.claude"
     busy_cmd_prefix="$(shell_quote "$FM_ROOT/bin/fm-busy-event.sh") apply $(shell_quote "$STATE_REAL") $(shell_quote "$ID")"
     busy_suffix="--gen $(shell_quote "$BUSY_GEN") --source claude-hook"
     j_submit=$(json_escape "$busy_cmd_prefix busy $busy_suffix --event user-prompt-submit 2>/dev/null || true")
     j_stop=$(json_escape "touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event stop 2>/dev/null || true")
     j_stopfail=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event stop-failure 2>/dev/null || true")
     j_sessionend=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event session-end 2>/dev/null || true")
-    cat >"$WT/.claude/settings.local.json" <<EOF
+    # A workbench clone's own .claude/settings.local.json belongs to the clone:
+    # it must never be overwritten, and Claude reloads it, so hooks merged into it
+    # would also fire for any other session started there. The hooks go into a
+    # firstmate-owned file instead, passed with --settings at launch below.
+    claude_hooks_file="$WT/.claude/settings.local.json"
+    [ "$WORKBENCH" != 1 ] || claude_hooks_file="$STATE_REAL/$ID.claude-settings.json"
+    cat >"$claude_hooks_file" <<EOF
 {"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"$j_submit"}]}],"Stop":[{"hooks":[{"type":"command","command":"$j_stop"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"$j_stopfail"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"$j_sessionend"}]}]}}
 EOF
-    exclude_path '.claude/settings.local.json'
+    [ "$WORKBENCH" = 1 ] || exclude_path '.claude/settings.local.json'
     ;;
   devin)
     if [ "$RAW_LAUNCH" -eq 0 ]; then
@@ -4870,6 +5002,12 @@ preserve_relaunch_meta() {
   echo "endpoint_task_id=$ID"
   echo "worktree=$WT"
   echo "project=$PROJ_ABS"
+  if [ "$WORKBENCH" = 1 ]; then
+    # Cleanup releases this lease and keeps the clone; a relaunch reuses it.
+    echo "workspace=workbench"
+    echo "workbench=$WORKBENCH_ID"
+    echo "workbench_repo=$WORKBENCH_REPO"
+  fi
   echo "harness=$HARNESS"
   echo "kind=$KIND"
   [ -z "$MODE" ] || echo "mode=$MODE"
@@ -5033,10 +5171,35 @@ fi
 LAUNCH=${LAUNCH//__PIRESUME__/$RESUME_ARGS}
 LAUNCH=${LAUNCH//__CLAUDEPERMFLAG__/$CLAUDE_PERM_FLAG}
 if [ "$KEEP_AI_TRAILERS" = 1 ]; then
-  LAUNCH=${LAUNCH//__CLAUDEATTRIBUTION__/}
+  CLAUDE_ATTRIBUTION=
 else
-  LAUNCH=${LAUNCH//__CLAUDEATTRIBUTION__/,'"attribution":{"commit":"","pr":"","sessionUrl":false}'}
+  CLAUDE_ATTRIBUTION=',"attribution":{"commit":"","pr":"","sessionUrl":false}'
 fi
+if [ "$WORKBENCH" = 1 ]; then
+  # Claude takes one --settings source, so in workbench mode the launch's inline
+  # settings and the task's hooks travel together in the firstmate-owned file
+  # written above, and that file replaces the inline JSON.
+  claude_inline_settings="{\"feedbackDrafts\":\"off\"$CLAUDE_ATTRIBUTION}"
+  claude_settings_file="$STATE_REAL/$ID.claude-settings.json"
+  if ! jq -c -s '.[0] * .[1]' - "$claude_settings_file" >"$claude_settings_file.tmp" <<<"$claude_inline_settings" ||
+    ! mv -f "$claude_settings_file.tmp" "$claude_settings_file"; then
+    rm -f "$claude_settings_file.tmp"
+    echo "error: could not assemble the workbench settings file $claude_settings_file for $ID" >&2
+    exit 1
+  fi
+  # claude is a native Windows program there, so it gets a Windows path.
+  claude_settings_arg=$claude_settings_file
+  command -v cygpath >/dev/null 2>&1 && claude_settings_arg=$(cygpath -m "$claude_settings_file")
+  claude_inline_flag="--settings '{\"feedbackDrafts\":\"off\"__CLAUDEATTRIBUTION__}'"
+  case "$LAUNCH" in
+  *"$claude_inline_flag"*) LAUNCH=${LAUNCH/"$claude_inline_flag"/"--settings $(shell_quote "$claude_settings_arg")"} ;;
+  *)
+    echo "error: the claude launch line carries no inline --settings to replace with the workbench settings file; refusing to launch without the task's hooks" >&2
+    exit 1
+    ;;
+  esac
+fi
+LAUNCH=${LAUNCH//__CLAUDEATTRIBUTION__/$CLAUDE_ATTRIBUTION}
 if [ "$HARNESS" = rovo ]; then
   ROVOCONFIGOVERRIDE=$(rovo_config_override_flag "$EFFORT" "$DATA" "$STATE" "$ID") || {
     echo "error: could not resolve this task's home paths for rovo's allowedExternalPaths grant" >&2

@@ -412,6 +412,15 @@ fi
 fm_lease_guard "$ID" "teardown (fm-teardown)"
 
 META="$STATE/$ID.meta"
+# A workbench-mode task works in a permanent clone. The worktree cleanup below
+# detaches HEAD, deletes the task branch and removes the directory's
+# .claude/settings.local.json, all of which would damage that clone, and the
+# workbench cleanup path is not built yet (docs/nexon/adaptation-plan.md
+# Phase 1 step 9). Refuse before anything is touched.
+if [ -f "$META" ] && [ ! -L "$META" ] && [ "$(fm_meta_get "$META" workspace)" = workbench ]; then
+  echo "REFUSED: task $ID works in workbench clone $(fm_meta_get "$META" worktree), and workbench cleanup is not implemented yet; nothing was changed. Stop the worker by hand and release its lease with: bin/fm-workbench.sh release $ID" >&2
+  exit 1
+fi
 TREEHOUSE_PROJECT_LOCK=
 TREEHOUSE_PROJECT_LOCK_HELD=0
 TREEHOUSE_SLOT_LOCK_REQUIRED=0
