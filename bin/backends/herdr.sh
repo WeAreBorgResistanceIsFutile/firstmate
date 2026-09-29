@@ -804,8 +804,12 @@ fm_backend_herdr_presentation_lock_namespace_valid() {
   [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
   expected_uid=$(id -u 2>/dev/null) || return 1
   owner=$(fm_backend_herdr_presentation_lock_namespace_uid "$dir") || return 1
+  [ "$owner" = "$expected_uid" ] || return 1
+  # Git Bash/Cygwin on NTFS ignores mkdir -m and reports 755 for every
+  # directory; its /tmp is already the user's private temp folder.
+  case "$(uname -s 2>/dev/null)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac
   mode=$(fm_backend_herdr_presentation_lock_namespace_mode "$dir") || return 1
-  [ "$owner" = "$expected_uid" ] && [ "$mode" = 700 ]
+  [ "$mode" = 700 ]
 }
 
 # Resolve the one verified running named-session socket path as an absolute
@@ -823,6 +827,11 @@ fm_backend_herdr_presentation_lock_namespace_valid() {
 fm_backend_herdr_canonical_socket_path() {  # <socket-path>
   local socket=$1 sock_dir sock_base
   [ -n "$socket" ] || return 1
+  # Windows herdr reports drive-letter paths (C:\...\herdr.sock); compare them
+  # in the POSIX form the rest of this function works in.
+  case "$socket" in
+    [A-Za-z]:[\\/]*) command -v cygpath >/dev/null 2>&1 && socket=$(cygpath -u "$socket") || return 1 ;;
+  esac
   case "$socket" in
     /*) ;;
     *) return 1 ;;

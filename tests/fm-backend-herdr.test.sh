@@ -387,6 +387,34 @@ test_cli_helper_sets_env_and_appends_trailing_session_flag() {
   pass "fm_backend_herdr_cli: sets HERDR_SESSION AND appends a trailing --session flag on every call"
 }
 
+# --- Windows host paths and permissions --------------------------------------
+
+test_canonical_socket_path_converts_a_windows_drive_path() {
+  local dir fb out
+  dir="$TMP_ROOT/canonical-drive"; fb="$dir/bin"; mkdir -p "$fb"
+  printf '#!/usr/bin/env bash\n[ "$1" = -u ] && [ "$2" = "C:\\\\Users\\\\me\\\\herdr.sock" ] && printf "/c/Users/me/herdr.sock\\n"\n' > "$fb/cygpath"
+  chmod +x "$fb/cygpath"
+  out=$(PATH="$fb:$PATH" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_canonical_socket_path "C:\\Users\\me\\herdr.sock"' "$ROOT") \
+    || fail "canonical_socket_path refused a drive-letter socket path"
+  [ "$out" = "/c/Users/me/herdr.sock" ] || fail "canonical_socket_path should convert a drive-letter path through cygpath, got '$out'"
+  out=$(bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_canonical_socket_path relative.sock' "$ROOT") \
+    && fail "canonical_socket_path accepted a relative path: '$out'"
+  pass "fm_backend_herdr_canonical_socket_path: converts a Windows drive path and still refuses a relative one"
+}
+
+test_lock_namespace_mode_check_is_skipped_only_on_windows_hosts() {
+  local dir fb ns
+  dir="$TMP_ROOT/lock-namespace-host"; fb="$dir/bin"; ns="$dir/ns"; mkdir -p "$fb" "$ns"
+  chmod 755 "$ns"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$FAKE_UNAME"\n' > "$fb/uname"
+  chmod +x "$fb/uname"
+  PATH="$fb:$PATH" FAKE_UNAME=MINGW64_NT-10.0 bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_lock_namespace_valid "$1"' "$ROOT" "$ns" \
+    || fail "a Windows host should accept an owner-matched lock namespace whatever mode it reports"
+  PATH="$fb:$PATH" FAKE_UNAME=Linux bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_lock_namespace_valid "$1"' "$ROOT" "$ns" \
+    && fail "a POSIX host must still refuse a lock namespace whose mode is not 700"
+  pass "fm_backend_herdr_presentation_lock_namespace_valid: skips the mode check only on a Windows host"
+}
+
 # --- client selection: a stale client shadowing a compatible one -------------
 #
 # Two herdr clients on PATH is a real host shape (a self-updated ~/.local/bin
@@ -5743,6 +5771,8 @@ test_wait_transition_clean_timeout_returns_1() {
 # shellcheck source=bin/fm-backend.sh
 . "$ROOT/bin/fm-backend.sh"
 
+test_canonical_socket_path_converts_a_windows_drive_path
+test_lock_namespace_mode_check_is_skipped_only_on_windows_hosts
 test_version_check_accepts_current_protocol
 test_version_check_refuses_old_protocol
 test_version_check_refuses_missing_herdr
