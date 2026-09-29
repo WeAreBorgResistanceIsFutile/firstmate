@@ -92,7 +92,7 @@ Each effective `FM_HOME` contains private operational directories.
 - Private secondmate config-reread generations with their retry and quarantine state.
 - Per-task steering-inbox records under `state/<id>.inbox/` (`bin/fm-task-inbox-lib.sh`).
 - Parent-owned secondmate pending-reply records under `state/pending-replies/` (`bin/fm-pending-reply-lib.sh`).
-- In workbench mode, the discovered workbench pool cached in `state/workbenches` and per-repo-clone leases in `state/workbench-<id>-<repo>.lease` (`bin/fm-workbench.sh`).
+- In workbench mode, the discovered workbench pool cached in `state/workbenches` (`bin/fm-workbench.sh`). Its per-repo-clone leases are machine-wide, not per home: `<FM_WORKBENCH_LEASE_DIR>/<id>-<repo>.lease`, default folder `C:\Agents\locks\workbench`.
 
 `config/` holds local gitignored operating choices, including explicit extension bindings under `config/extensions.d/`.
 

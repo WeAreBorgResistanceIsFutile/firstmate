@@ -195,7 +195,9 @@ fm_workbench_clone_dirt() {  # <posix-clone>
   tolerated=$(fm_workbench_switch_site_paths "$clone")
   # -z so a path with spaces arrives unquoted; the NULs become newlines inside
   # the pipeline because a command substitution drops NUL bytes.
-  status=$(set -o pipefail; git -C "$clone" status --porcelain -z 2>/dev/null | tr '\0' '\n') || return 1
+  # --no-optional-locks: the probe runs on clones other agents are working in,
+  # and a plain status takes .git/index.lock to refresh the index.
+  status=$(set -o pipefail; git --no-optional-locks -C "$clone" status --porcelain -z 2>/dev/null | tr '\0' '\n') || return 1
   while IFS= read -r entry; do
     if [ "$skip" = 1 ]; then skip=0; continue; fi
     [ -n "$entry" ] || continue
@@ -209,4 +211,27 @@ fm_workbench_clone_dirt() {  # <posix-clone>
   done <<EOF2
 $status
 EOF2
+}
+
+# --- idle branch ---------------------------------------------------------------
+#
+# An idle clone sits on its origin's default branch (origin/HEAD: EHR for Nexon4,
+# main elsewhere) with no commit origin lacks. A clone left on a task branch, or
+# on the captain's own work, is not free even when its tree is clean.
+
+# Print why clone $1 is not on its idle branch, or nothing when it is. Returns 1
+# when git cannot read the clone.
+fm_workbench_clone_off_idle() {  # <posix-clone>
+  local clone=$1 idle current ahead
+  idle=$(git --no-optional-locks -C "$clone" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) || {
+    printf '%s\n' "origin/HEAD is not set, so its idle branch is unknown (git remote set-head origin -a)"
+    return 0
+  }
+  current=$(git --no-optional-locks -C "$clone" symbolic-ref -q --short HEAD 2>/dev/null) || current=
+  if [ "$current" != "${idle#origin/}" ]; then
+    printf 'on %s, not its idle branch %s\n' "${current:-a detached HEAD}" "${idle#origin/}"
+    return 0
+  fi
+  ahead=$(git --no-optional-locks -C "$clone" rev-list --count "$idle..HEAD" 2>/dev/null) || return 1
+  [ "$ahead" = 0 ] || printf '%s is %s commit(s) ahead of %s\n' "$current" "$ahead" "$idle"
 }

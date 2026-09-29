@@ -13,24 +13,34 @@
 #   fm-workbench.sh confirm <id>    record the captain's confirmation of one workbench
 #   fm-workbench.sh lease <task> <repo> [<workbench>]
 #                                   lease a free, clean <root>\<repo> clone to <task>
-#   fm-workbench.sh release <task>  drop every lease <task> holds
-#   fm-workbench.sh status          print every lease: workbench repo task time clone
+#   fm-workbench.sh release [--force] <task>
+#                                   drop every lease <task> holds
+#   fm-workbench.sh status          print every lease: workbench repo task time clone home
+#   fm-workbench.sh path <workbench> <repo>
+#                                   print the lease file of one repo clone
 #
 # Pool rows: id<TAB>status<TAB>root<TAB>clone<TAB>site<TAB>url<TAB>identity,
 # status is `confirmed` or `new`. A trailing `new:` line names every
 # unconfirmed id. FM_IIS_APPHOST_CONFIG overrides the IIS file (tests).
 #
-# Leases are per repo clone: state/workbench-<id>-<repo>.lease records task,
-# workbench, repo, clone and time. `lease` considers only confirmed workbenches
-# whose <root>\<repo> is a git clone with no lease and no uncommitted change
-# beyond an unstaged edit of a config the clone's own Switch-Site.ps1 rewrites
-# (bin/fm-workbench-lib.sh :: fm_workbench_clone_dirt). A task that already holds
+# Leases are per repo clone and machine-wide: every firstmate home on this
+# machine leases the same physical clones, so the lease files and their lock live
+# in one shared folder, FM_WORKBENCH_LEASE_DIR (default C:\Agents\locks\workbench).
+# <dir>/<id>-<repo>.lease records task, the leasing home's state directory,
+# workbench, repo, clone and time; a task is named by its home and its id,
+# because task ids are unique only within one home. `lease` considers only
+# confirmed workbenches whose <root>\<repo> is a git clone with no lease, on its
+# idle branch (bin/fm-workbench-lib.sh :: fm_workbench_clone_off_idle), and with
+# no uncommitted change beyond an unstaged edit of a config the clone's own
+# Switch-Site.ps1 rewrites (fm_workbench_clone_dirt). A task that already holds
 # a lease works in that workbench, so its next repo is leased there or not at
 # all; leasing a repo the task already holds prints the existing lease. On
 # success it prints `leased: <id> <repo> <clone>`. Exit 3: no workbench has a
 # clone of <repo> (the captain decides where to clone it); exit 4: every clone
-# is leased, dirty, or unconfirmed, each reason listed. A lease is removed only
-# by `release`.
+# is leased, dirty, off its idle branch, or unconfirmed, each reason listed. A
+# lease is removed only by `release`, which refuses while the task's record
+# (state/<task>.meta) still exists: a recorded task may have a live worker in the
+# clone. --force releases anyway, once the worker is known to be stopped.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,12 +51,15 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 CACHE="$STATE/workbenches"
 CONFIRMED="$DATA/workbenches-confirmed"
 APPHOST="${FM_IIS_APPHOST_CONFIG:-${WINDIR:-/c/Windows}/System32/inetsrv/config/applicationHost.config}"
+LEASE_DIR="${FM_WORKBENCH_LEASE_DIR:-/c/Agents/locks/workbench}"
 
 # shellcheck source=bin/fm-workbench-lib.sh
 . "$SCRIPT_DIR/fm-workbench-lib.sh"
+# shellcheck source=bin/fm-wake-lib.sh
+. "$SCRIPT_DIR/fm-wake-lib.sh"
 
 usage() {
-  sed -n 's/^# \{0,1\}//; 10,17p' "${BASH_SOURCE[0]}" >&2
+  sed -n 's/^# \{0,1\}//; 10,20p' "${BASH_SOURCE[0]}" >&2
   exit 2
 }
 
@@ -103,32 +116,26 @@ cmd_confirm() {  # <id>
   echo "confirmed: $id"
 }
 
-LEASE_LOCK="$STATE/.workbench-lease.lock"
+LEASE_LOCK="$LEASE_DIR/.lease.lock"
+# The leasing home, as the resolved path of its state directory.
+HOME_STATE=
+LEASE_WAIT_SECONDS="${FM_WORKBENCH_LEASE_WAIT:-120}"
 
-# Serialize every lease-file mutation. A holder that died leaves its pid behind,
-# and a lock whose recorded holder is gone is taken over.
+# Serialize every lease-file mutation across all homes. The lock is
+# bin/fm-wake-lib.sh's portable lock, whose stale-holder recovery is race-safe;
+# the wait is long because a lease runs git status on several large clones.
 lease_lock() {
-  local i holder
-  mkdir -p "$STATE"
-  for i in $(seq 1 100); do
-    if mkdir "$LEASE_LOCK" 2>/dev/null; then
-      printf '%s\n' "$$" > "$LEASE_LOCK/pid"
-      trap 'rm -rf "$LEASE_LOCK"' EXIT
-      return 0
-    fi
-    holder=$(cat "$LEASE_LOCK/pid" 2>/dev/null || true)
-    if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
-      rm -rf "$LEASE_LOCK"
-      continue
-    fi
-    sleep 0.1
-  done
-  echo "error: the workbench lease lock $LEASE_LOCK is held by pid ${holder:-unknown}" >&2
-  return 1
+  mkdir -p "$STATE" "$LEASE_DIR" || { echo "error: cannot create the workbench lease folder $LEASE_DIR" >&2; return 1; }
+  HOME_STATE=$(cd "$STATE" && pwd -P)
+  if ! fm_lock_acquire_wait_max "$LEASE_LOCK" "$LEASE_WAIT_SECONDS"; then
+    echo "error: the workbench lease lock $LEASE_LOCK is still held by pid ${FM_LOCK_HELD_PID:-unknown} after ${LEASE_WAIT_SECONDS}s" >&2
+    return 1
+  fi
+  trap 'fm_lock_release "$LEASE_LOCK"' EXIT
 }
 
 lease_file() {  # <workbench-id> <repo>
-  printf '%s/workbench-%s-%s.lease\n' "$STATE" "$1" "$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"
+  printf '%s/%s-%s.lease\n' "$LEASE_DIR" "$1" "$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"
 }
 
 lease_field() {  # <lease-file> <key>
@@ -139,17 +146,22 @@ valid_name() {  # <value>
   case "$1" in '' | *[!A-Za-z0-9._-]* | .*) return 1 ;; esac
 }
 
-# Print every lease file this home holds, one path per line.
+# 0 iff lease file $1 belongs to task $2 of this home.
+lease_is_ours() {  # <lease-file> <task>
+  [ "$(lease_field "$1" task)" = "$2" ] && [ "$(lease_field "$1" home)" = "$HOME_STATE" ]
+}
+
+# Print every lease file on this machine, one path per line.
 lease_files() {
   local f
-  for f in "$STATE"/workbench-*.lease; do
+  for f in "$LEASE_DIR"/*.lease; do
     [ -f "$f" ] && printf '%s\n' "$f"
   done
   return 0
 }
 
 cmd_lease() {  # <task> <repo> [<workbench>]
-  local task=$1 repo=$2 want=${3:-} f held_wb= id root clone site url identity posix dirt
+  local task=$1 repo=$2 want=${3:-} f held_wb= id root clone site url identity posix dirt off holder
   local found_clone=0 reasons=
   valid_name "$task" || { echo "error: invalid task id '$task'" >&2; return 2; }
   valid_name "$repo" || { echo "error: invalid repo name '$repo'" >&2; return 2; }
@@ -157,7 +169,7 @@ cmd_lease() {  # <task> <repo> [<workbench>]
   lease_lock || return 1
   # A task works in one workbench: a second repo leases that workbench's clone.
   while IFS= read -r f; do
-    [ "$(lease_field "$f" task)" = "$task" ] || continue
+    lease_is_ours "$f" "$task" || continue
     held_wb=$(lease_field "$f" workbench)
     if [ "$(lease_field "$f" repo | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$repo" | tr '[:upper:]' '[:lower:]')" ]; then
       printf 'leased: %s %s %s\n' "$held_wb" "$repo" "$(lease_field "$f" clone)"
@@ -186,7 +198,9 @@ cmd_lease() {  # <task> <repo> [<workbench>]
     fi
     f=$(lease_file "$id" "$repo")
     if [ -f "$f" ]; then
-      reasons="$reasons"$'\n'"  $id: leased by task $(lease_field "$f" task)"
+      holder="task $(lease_field "$f" task)"
+      [ "$(lease_field "$f" home)" = "$HOME_STATE" ] || holder="$holder of the home at $(lease_field "$f" home)"
+      reasons="$reasons"$'\n'"  $id: leased by $holder"
       continue
     fi
     if ! dirt=$(fm_workbench_clone_dirt "$posix"); then
@@ -197,8 +211,16 @@ cmd_lease() {  # <task> <repo> [<workbench>]
       reasons="$reasons"$'\n'"  $id: $clone has uncommitted changes ($(printf '%s\n' "$dirt" | wc -l | tr -d ' ') paths, first: $(printf '%s\n' "$dirt" | head -n 1))"
       continue
     fi
-    printf 'task=%s\nworkbench=%s\nrepo=%s\nclone=%s\nleased_at=%s\n' \
-      "$task" "$id" "$repo" "$clone" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$f.tmp.$$"
+    if ! off=$(fm_workbench_clone_off_idle "$posix"); then
+      reasons="$reasons"$'\n'"  $id: git cannot read $clone"
+      continue
+    fi
+    if [ -n "$off" ]; then
+      reasons="$reasons"$'\n'"  $id: $clone is $off"
+      continue
+    fi
+    printf 'task=%s\nhome=%s\nworkbench=%s\nrepo=%s\nclone=%s\nleased_at=%s\n' \
+      "$task" "$HOME_STATE" "$id" "$repo" "$clone" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$f.tmp.$$"
     mv -f "$f.tmp.$$" "$f"
     printf 'leased: %s %s %s\n' "$id" "$repo" "$clone"
     return 0
@@ -215,12 +237,16 @@ cmd_lease() {  # <task> <repo> [<workbench>]
   return 4
 }
 
-cmd_release() {  # <task>
-  local task=$1 f released=0
+cmd_release() {  # <task> [--force]
+  local task=$1 force=${2:-} f released=0
   valid_name "$task" || { echo "error: invalid task id '$task'" >&2; return 2; }
+  if [ -z "$force" ] && { [ -e "$STATE/$task.meta" ] || [ -L "$STATE/$task.meta" ]; }; then
+    echo "error: task $task is still recorded ($STATE/$task.meta), so its worker may be running in the clone; stop the worker first, then: fm-workbench.sh release --force $task" >&2
+    return 1
+  fi
   lease_lock || return 1
   while IFS= read -r f; do
-    [ "$(lease_field "$f" task)" = "$task" ] || continue
+    lease_is_ours "$f" "$task" || continue
     printf 'released: %s %s\n' "$(lease_field "$f" workbench)" "$(lease_field "$f" repo)"
     rm -f "$f"
     released=1
@@ -231,8 +257,8 @@ cmd_release() {  # <task>
 cmd_status() {
   local f any=0
   while IFS= read -r f; do
-    printf '%s\t%s\t%s\t%s\t%s\n' "$(lease_field "$f" workbench)" "$(lease_field "$f" repo)" \
-      "$(lease_field "$f" task)" "$(lease_field "$f" leased_at)" "$(lease_field "$f" clone)"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(lease_field "$f" workbench)" "$(lease_field "$f" repo)" \
+      "$(lease_field "$f" task)" "$(lease_field "$f" leased_at)" "$(lease_field "$f" clone)" "$(lease_field "$f" home)"
     any=1
   done < <(lease_files)
   [ "$any" = 1 ] || echo "no workbench leases"
@@ -243,7 +269,15 @@ case "${1:-}" in
   list) [ $# -eq 1 ] || usage; print_pool ;;
   confirm) [ $# -eq 2 ] || usage; cmd_confirm "$2" ;;
   lease) [ $# -eq 3 ] || [ $# -eq 4 ] || usage; cmd_lease "$2" "$3" "${4:-}" ;;
-  release) [ $# -eq 2 ] || usage; cmd_release "$2" ;;
+  release)
+    if [ $# -eq 3 ] && [ "$2" = --force ]; then
+      cmd_release "$3" --force
+    else
+      [ $# -eq 2 ] || usage
+      cmd_release "$2"
+    fi
+    ;;
   status) [ $# -eq 1 ] || usage; cmd_status ;;
+  path) [ $# -eq 3 ] && valid_name "$2" && valid_name "$3" || usage; lease_file "$2" "$3" ;;
   *) usage ;;
 esac

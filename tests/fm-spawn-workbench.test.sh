@@ -44,6 +44,9 @@ PS
   printf '.claude/settings.local.json\n' > "$clone/.gitignore"
   git -C "$clone" add -A
   git -C "$clone" commit -qm fixture
+  # An idle clone: its branch is origin's default and up to date with it.
+  git -C "$clone" update-ref "refs/remotes/origin/$(git -C "$clone" symbolic-ref --short HEAD)" HEAD
+  git -C "$clone" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$(git -C "$clone" symbolic-ref --short HEAD)"
   printf '<configuration site="wa" />\n' > "$clone/Frontend/Source/Nexon.Web/Web.config"
   printf '{"permissions":{"allow":["Bash(git status)"]},"autoMemoryDirectory":"C:\\\\Agents\\\\memory"}\n' \
     > "$clone/.claude/settings.local.json"
@@ -66,9 +69,10 @@ $1
 EOF
 }
 
+# Leases go to the case's own folder, never the machine's real C:\Agents\locks.
 run_spawn() {  # <args>...
   : > "$LAUNCHLOG"
-  FM_FAKE_LAUNCH_LOG="$LAUNCHLOG" fm_test_run_spawn "$HOME_DIR" "$CLONE" "$FAKEBIN" "$@"
+  FM_WORKBENCH_LEASE_DIR="$CASE_DIR/locks" FM_FAKE_LAUNCH_LOG="$LAUNCHLOG" fm_test_run_spawn "$HOME_DIR" "$CLONE" "$FAKEBIN" "$@"
 }
 
 test_a_scout_launches_in_the_leased_clone_and_leaves_it_untouched() {
@@ -93,7 +97,7 @@ test_a_scout_launches_in_the_leased_clone_and_leaves_it_untouched() {
   assert_line 'workspace=workbench' "$HOME_DIR/state/$id.meta" "the task record does not mark workbench mode"
   assert_line 'workbench=wa' "$HOME_DIR/state/$id.meta" "the task record does not name its workbench"
   assert_line 'workbench_repo=Nexon4' "$HOME_DIR/state/$id.meta" "the task record does not name its repo"
-  assert_line "task=$id" "$HOME_DIR/state/workbench-wa-nexon4.lease" "the clone is not leased to the task"
+  assert_line "task=$id" "$CASE_DIR/locks/wa-nexon4.lease" "the clone is not leased to the task"
 
   assert_equals "$(git -C "$CLONE" rev-parse HEAD)" "$head_before" "the spawn moved the clone's HEAD"
   assert_contains "$(git -C "$CLONE" status --porcelain)" "Frontend/Source/Nexon.Web/Web.config" \
@@ -139,7 +143,7 @@ test_a_non_claude_worker_is_refused_and_the_lease_released() {
   [ "$status" -ne 0 ] || fail "a codex worker was launched into a permanent clone"
   assert_contains "$out" "supports claude workers only" "the refusal does not name the reason"
   assert_absent "$HOME_DIR/state/$id.meta" "a refused spawn left a task record"
-  assert_absent "$HOME_DIR/state/workbench-wa-nexon4.lease" "a refused spawn left the clone leased"
+  assert_absent "$CASE_DIR/locks/wa-nexon4.lease" "a refused spawn left the clone leased"
   pass 'a non-claude worker is refused before it can touch the clone'
 }
 
@@ -167,11 +171,32 @@ test_a_path_project_argument_is_refused() {
   status=$?
   [ "$status" -ne 0 ] || fail "a path project argument was accepted in workbench mode"
   assert_contains "$out" "is a repo name" "the refusal does not explain the argument"
-  assert_absent "$HOME_DIR/state/workbench-wa-nexon4.lease" "a refused spawn leased the clone"
+  assert_absent "$CASE_DIR/locks/wa-nexon4.lease" "a refused spawn leased the clone"
   pass 'workbench mode takes a repo name, not a path'
+}
+
+test_a_ship_and_an_unknown_workspace_are_refused() {
+  local rec id out status
+  id=wb-ship
+  rec=$(make_case ship claude "$id")
+  read_case "$rec"
+  out=$(run_spawn "$id" Nexon4 --mode direct-PR --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a ship was launched onto the clone's idle branch"
+  assert_contains "$out" "runs scouts only" "the ship refusal does not name the reason"
+  assert_absent "$CASE_DIR/locks/wa-nexon4.lease" "a refused ship leased the clone"
+
+  printf 'Workbench\n' > "$HOME_DIR/config/workspace"
+  out=$(run_spawn "$id" Nexon4 --scout)
+  status=$?
+  [ "$status" -ne 0 ] || fail "an unknown config/workspace value fell back to a Treehouse spawn"
+  assert_contains "$out" "accepted values: treehouse, workbench" "the refusal does not name the accepted values"
+  assert_absent "$HOME_DIR/state/$id.meta" "a refused spawn left a task record"
+  pass 'a ship, and an unknown config/workspace value, are refused'
 }
 
 test_a_scout_launches_in_the_leased_clone_and_leaves_it_untouched
 test_a_non_claude_worker_is_refused_and_the_lease_released
 test_a_dirty_clone_is_not_leased
 test_a_path_project_argument_is_refused
+test_a_ship_and_an_unknown_workspace_are_refused

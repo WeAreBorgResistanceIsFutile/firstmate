@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # tests/fm-workbench-lease.test.sh - per-repo workbench leases
 # (bin/fm-workbench.sh lease|release|status, bin/fm-workbench-lib.sh ::
-# fm_workbench_clone_dirt).
+# fm_workbench_clone_dirt, fm_workbench_clone_off_idle).
 #
-# Each case builds its own pool: workbench roots holding real git clones, a
-# state/workbenches cache as discover would write it, and the captain's
-# confirmations. No case reads IIS.
+# Each case builds its own pool: workbench roots holding real git clones on
+# their idle branch, a state/workbenches cache as discover would write it, and
+# the captain's confirmations. Leases go to the case's own locks/ folder, never
+# the machine's real C:\Agents\locks. No case reads IIS.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -17,6 +18,15 @@ CMD="$ROOT/bin/fm-workbench.sh"
 
 winpath() {  # <posix-path>
   if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s\n' "$1"; fi
+}
+
+# Make clone $1's current branch its origin's default and up to date with it,
+# the state of an idle workbench clone, without a real remote.
+make_idle() {  # <clone>
+  local clone=$1 branch
+  branch=$(git -C "$clone" symbolic-ref --short HEAD)
+  git -C "$clone" update-ref "refs/remotes/origin/$branch" HEAD
+  git -C "$clone" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$branch"
 }
 
 # A Nexon4-shaped clone: one config Switch-Site.ps1 rewrites, one it does not.
@@ -33,6 +43,12 @@ $plan = @(
 PS
   git -C "$clone" add -A
   git -C "$clone" commit -qm fixture
+  make_idle "$clone"
+}
+
+make_plain_clone() {  # <clone>
+  fm_git_init_commit "$1" >/dev/null
+  make_idle "$1"
 }
 
 # Build a home at $1 whose pool lists each named root under $1/wb, all confirmed
@@ -51,10 +67,12 @@ make_home() {  # <dir> <id>...
   done
 }
 
+# Run the command as the home at $1. The lease folder is the home's own unless
+# LEASES names one several homes share.
 run_in() {  # <dir> <args>...
   local dir=$1
   shift
-  FM_STATE_OVERRIDE="$dir/state" FM_DATA_OVERRIDE="$dir/data" "$CMD" "$@"
+  FM_WORKBENCH_LEASE_DIR="${LEASES:-$dir/locks}" FM_STATE_OVERRIDE="$dir/state" FM_DATA_OVERRIDE="$dir/data" "$CMD" "$@"
 }
 
 test_each_clone_is_leased_to_one_task() {
@@ -65,7 +83,8 @@ test_each_clone_is_leased_to_one_task() {
   make_nexon_clone "$dir/wb/wb/Nexon4"
   out=$(run_in "$dir" lease t1 Nexon4) || fail "the first lease failed"
   assert_contains "$out" "leased: wa Nexon4" "the first free clone is leased"
-  assert_present "$dir/state/workbench-wa-nexon4.lease" "the lease is recorded per repo clone"
+  assert_present "$dir/locks/wa-nexon4.lease" "the lease is recorded per repo clone"
+  assert_contains "$(cat "$dir/locks/wa-nexon4.lease")" "home=$(cd "$dir/state" && pwd -P)" "the lease names its home"
   out=$(run_in "$dir" lease t1 nexon4) || fail "a repeat lease failed"
   assert_contains "$out" "leased: wa" "a repeat lease prints the existing lease"
   out=$(run_in "$dir" lease t2 Nexon4) || fail "the second task found no clone"
@@ -113,7 +132,7 @@ test_a_task_stays_in_its_workbench_for_a_second_repo() {
   make_home "$dir" wa wb
   make_nexon_clone "$dir/wb/wa/Nexon4"
   make_nexon_clone "$dir/wb/wb/Nexon4"
-  fm_git_init_commit "$dir/wb/wb/Payroll" >/dev/null
+  make_plain_clone "$dir/wb/wb/Payroll"
   run_in "$dir" lease t1 Nexon4 >/dev/null
   out=$(run_in "$dir" lease t1 Payroll 2>&1) || rc=$?
   assert_equals "$rc" 3 "the task's workbench has no clone of the second repo"
@@ -139,7 +158,7 @@ test_missing_and_unconfirmed_clones_are_refused() {
   assert_contains "$out" "the captain decides where to clone it" "the refusal hands the clone decision to the captain"
   rc=0; run_in "$dir" lease 'bad/id' Nexon4 >/dev/null 2>&1 || rc=$?
   assert_equals "$rc" 2 "a task id that is not a plain name is refused"
-  assert_absent "$dir/state/.workbench-lease.lock" "no lease lock is left behind"
+  assert_absent "$dir/locks/.lease.lock" "no lease lock is left behind"
   pass 'a missing repo, an unconfirmed workbench, and a bad task id are refused'
 }
 
@@ -149,7 +168,7 @@ test_release_drops_only_that_tasks_leases() {
   make_home "$dir" wa wb
   make_nexon_clone "$dir/wb/wa/Nexon4"
   make_nexon_clone "$dir/wb/wb/Nexon4"
-  fm_git_init_commit "$dir/wb/wa/Payroll" >/dev/null
+  make_plain_clone "$dir/wb/wa/Payroll"
   run_in "$dir" lease t1 Nexon4 >/dev/null
   run_in "$dir" lease t1 Payroll >/dev/null
   run_in "$dir" lease t2 Nexon4 >/dev/null
@@ -164,8 +183,75 @@ test_release_drops_only_that_tasks_leases() {
   pass 'release drops every lease of that task and nothing else'
 }
 
+test_a_clone_off_its_idle_branch_is_not_leased() {
+  local dir clone out rc
+  dir="$TMP_ROOT/idle-branch"
+  make_home "$dir" wa
+  clone="$dir/wb/wa/Nexon4"
+  make_nexon_clone "$clone"
+
+  git -C "$clone" switch -qc feature/x
+  rc=0; out=$(run_in "$dir" lease t1 Nexon4 2>&1) || rc=$?
+  assert_equals "$rc" 4 "a clone on a task branch is not free"
+  assert_contains "$out" "on feature/x, not its idle branch" "the refusal names the branch"
+  git -C "$clone" switch -q -
+
+  git -C "$clone" commit -q --allow-empty -m local
+  rc=0; out=$(run_in "$dir" lease t1 Nexon4 2>&1) || rc=$?
+  assert_equals "$rc" 4 "a clone with an unpushed commit is not free"
+  assert_contains "$out" "1 commit(s) ahead of origin/" "the refusal names the unpushed commit"
+  make_idle "$clone"
+
+  git -C "$clone" symbolic-ref --delete refs/remotes/origin/HEAD
+  rc=0; out=$(run_in "$dir" lease t1 Nexon4 2>&1) || rc=$?
+  assert_equals "$rc" 4 "a clone whose idle branch is unknown is not free"
+  assert_contains "$out" "origin/HEAD is not set" "the refusal names the missing origin/HEAD"
+  make_idle "$clone"
+
+  run_in "$dir" lease t1 Nexon4 >/dev/null || fail "the idle clone was not leasable"
+  pass 'a clone off its idle branch, ahead of it, or without one is not leased'
+}
+
+test_leases_are_shared_by_every_home() {
+  local shared out rc=0
+  shared="$TMP_ROOT/shared-locks"
+  make_home "$TMP_ROOT/home-a" wa
+  make_nexon_clone "$TMP_ROOT/home-a/wb/wa/Nexon4"
+  make_home "$TMP_ROOT/home-b" wa
+  rm -rf "$TMP_ROOT/home-b/wb"
+  cp "$TMP_ROOT/home-a/state/workbenches" "$TMP_ROOT/home-b/state/workbenches"
+  LEASES=$shared run_in "$TMP_ROOT/home-a" lease t1 Nexon4 >/dev/null || fail "the first home could not lease"
+  out=$(LEASES=$shared run_in "$TMP_ROOT/home-b" lease t1 Nexon4 2>&1) || rc=$?
+  assert_equals "$rc" 4 "a second home leased a clone the first home holds"
+  assert_contains "$out" "leased by task t1 of the home at" "the refusal names the other home"
+  out=$(LEASES=$shared run_in "$TMP_ROOT/home-b" release t1)
+  assert_contains "$out" "no lease held by task t1" "a same-named task of another home released the lease"
+  out=$(LEASES=$shared run_in "$TMP_ROOT/home-a" status)
+  assert_contains "$out" "wa"$'\t'"Nexon4"$'\t'"t1" "the first home's lease did not survive"
+  pass 'every home leases from one machine-wide folder, and a task is named by its home'
+}
+
+test_release_refuses_a_recorded_task() {
+  local dir out rc=0
+  dir="$TMP_ROOT/release-recorded"
+  make_home "$dir" wa
+  make_nexon_clone "$dir/wb/wa/Nexon4"
+  run_in "$dir" lease t1 Nexon4 >/dev/null
+  printf 'kind=scout\n' > "$dir/state/t1.meta"
+  out=$(run_in "$dir" release t1 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "a recorded task's lease was released"
+  assert_contains "$out" "release --force t1" "the refusal does not name the forced release"
+  assert_present "$dir/locks/wa-nexon4.lease" "the refused release dropped the lease"
+  out=$(run_in "$dir" release --force t1) || fail "a forced release failed"
+  assert_contains "$out" "released: wa Nexon4" "the forced release did not drop the lease"
+  pass 'release refuses while the task is recorded, and --force overrides it'
+}
+
 test_each_clone_is_leased_to_one_task
 test_only_unstaged_switch_site_configs_count_as_clean
 test_a_task_stays_in_its_workbench_for_a_second_repo
 test_missing_and_unconfirmed_clones_are_refused
 test_release_drops_only_that_tasks_leases
+test_a_clone_off_its_idle_branch_is_not_leased
+test_leases_are_shared_by_every_home
+test_release_refuses_a_recorded_task

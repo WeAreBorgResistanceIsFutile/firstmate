@@ -3018,8 +3018,11 @@ if [ "$KIND" = secondmate ]; then
 else
   if [ "$RELAUNCH" -eq 1 ]; then
     [ "$(fm_meta_get "$RELAUNCH_META" workspace)" != workbench ] || WORKBENCH=1
-  elif [ "$(fm_workspace_mode "$CONFIG")" = workbench ]; then
-    WORKBENCH=1
+  else
+    # An unreadable or unknown value must stop the spawn, not fall back to the
+    # Treehouse path; fm_workspace_mode has printed the diagnostic.
+    spawn_workspace_mode=$(fm_workspace_mode "$CONFIG") || exit 1
+    [ "$spawn_workspace_mode" != workbench ] || WORKBENCH=1
   fi
   if [ "$WORKBENCH" = 1 ]; then
     # Only claude is wired to keep its hooks out of the clone (--settings with a
@@ -3034,6 +3037,13 @@ else
     esac
     [ "$BACKEND" != orca ] || {
       echo "error: workbench mode does not support the orca backend, which creates its own worktree" >&2
+      exit 1
+    }
+    # A leased clone sits on its idle branch (EHR, main); nothing creates the
+    # task branch yet (docs/nexon/adaptation-plan.md Phase 2 step 2), so a ship
+    # would commit straight onto it.
+    [ "$KIND" != ship ] || {
+      echo "error: workbench mode runs scouts only until task-branch preparation exists; a ship would commit onto the clone's idle branch" >&2
       exit 1
     }
   fi
@@ -3076,7 +3086,10 @@ else
   WT=""
   [ "$WORKBENCH" != 1 ] || [ "$RELAUNCH" -eq 1 ] || WT=$PROJ_ABS
   if [ "$WORKBENCH" = 1 ]; then
-    WORKBENCH_LEASE="$STATE/workbench-$WORKBENCH_ID-$(printf '%s' "$WORKBENCH_REPO" | tr '[:upper:]' '[:lower:]').lease"
+    WORKBENCH_LEASE=$("$FM_ROOT/bin/fm-workbench.sh" path "$WORKBENCH_ID" "$WORKBENCH_REPO") || {
+      echo "error: could not resolve the workbench lease file for $WORKBENCH_ID $WORKBENCH_REPO" >&2
+      exit 1
+    }
   fi
   BRIEF="$DATA/$ID/brief.md"
 fi
@@ -3352,8 +3365,11 @@ validate_workbench_clone() { # <source> <inspect-target>
     echo "error: $source: workbench clone '$WT' is not a git clone root (root '${top:-none}'); refusing to launch. Inspect target $inspect_target" >&2
     exit 1
   fi
-  if [ ! -f "$WORKBENCH_LEASE" ] || [ "$(sed -n 's/^task=//p' "$WORKBENCH_LEASE" | head -n 1)" != "$ID" ]; then
-    echo "error: $source: workbench lease '$WORKBENCH_LEASE' does not name task $ID; refusing to launch in a clone this task does not hold. Inspect target $inspect_target" >&2
+  # Leases are machine-wide and task ids are unique only within one home, so
+  # the lease must name this home as well as this task.
+  if [ ! -f "$WORKBENCH_LEASE" ] || [ "$(sed -n 's/^task=//p' "$WORKBENCH_LEASE" | head -n 1)" != "$ID" ] ||
+    [ "$(sed -n 's/^home=//p' "$WORKBENCH_LEASE" | head -n 1)" != "$(cd "$STATE" && pwd -P)" ]; then
+    echo "error: $source: workbench lease '$WORKBENCH_LEASE' does not name task $ID of this home; refusing to launch in a clone this task does not hold. Inspect target $inspect_target" >&2
     exit 1
   fi
 }
@@ -4991,7 +5007,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp model effort account account_provider busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp model effort account account_provider busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx workspace workbench workbench_repo", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)

@@ -418,7 +418,7 @@ META="$STATE/$ID.meta"
 # workbench cleanup path is not built yet (docs/nexon/adaptation-plan.md
 # Phase 1 step 9). Refuse before anything is touched.
 if [ -f "$META" ] && [ ! -L "$META" ] && [ "$(fm_meta_get "$META" workspace)" = workbench ]; then
-  echo "REFUSED: task $ID works in workbench clone $(fm_meta_get "$META" worktree), and workbench cleanup is not implemented yet; nothing was changed. Stop the worker by hand and release its lease with: bin/fm-workbench.sh release $ID" >&2
+  echo "REFUSED: task $ID works in workbench clone $(fm_meta_get "$META" worktree), and workbench cleanup is not implemented yet; nothing was changed. Stop the worker by hand, then release its lease with: bin/fm-workbench.sh release --force $ID" >&2
   exit 1
 fi
 TREEHOUSE_PROJECT_LOCK=

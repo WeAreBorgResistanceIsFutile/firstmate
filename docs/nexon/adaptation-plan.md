@@ -127,11 +127,15 @@ without the worker changing anything.
    the tolerated configs are read from each clone's own `Switch-Site.ps1`,
    12 today; a lease ends only by `release` — stale-lease detection is open.)*
    (`bin/fm-workbench.sh`): `lease <task> <repo> [<workbench>]`
-   picks a workbench whose `<root>\<repo>` exists, has no live lease and is clean
-   (beyond the Switch-Site configs for Nexon4); writes
-   `state/workbench-<id>-<repo>.lease` (task, time) under a lock; a second repo
-   for the same task leases the same workbench's clone; `release <task>`;
-   `status`. If no workbench has a clone of `<repo>`, it stops and reports that
+   picks a workbench whose `<root>\<repo>` exists, has no live lease, is clean
+   (beyond the Switch-Site configs for Nexon4) and sits on its idle branch
+   (origin/HEAD, not ahead of it); writes `<id>-<repo>.lease` (task, home, time)
+   under a lock in the machine-wide `C:\Agents\locks\workbench\`, shared by
+   every firstmate home *(2026-09-29, captain: shared folder, not
+   primary-home-only)*; a second repo for the same task leases the same
+   workbench's clone; `release [--force] <task>` (refuses while the task is
+   still recorded); `status`. The dirt probe runs `git --no-optional-locks`, so
+   it never takes another agent's `index.lock`. If no workbench has a clone of `<repo>`, it stops and reports that
    (the captain decides where to clone it — Phase 2 step 1).
 7. **Spawn in workbench mode** *(Done 2026-09-29, not live-tested:
    `tests/fm-spawn-workbench.test.sh`.)* (`bin/fm-spawn.sh`): the seam is the branch that
@@ -141,7 +145,9 @@ without the worker changing anything.
    and `freshen_spawn_worktree_base` (which runs `git reset --hard`). The
    project argument is a repo name (`--workbench <id>` pins one); Claude trust
    is pre-registered through `fm-claude-trust.sh --workbench-clone`, whose
-   scope proof is the task's lease; claude workers only.
+   scope proof is the task's lease; claude workers only, and scouts only until
+   step 2 of Phase 2 creates the task branch (a ship would commit onto `EHR`).
+   An unknown `config/workspace` value stops the spawn.
 8. **Hooks without clobbering.** *(Decided 2026-09-29, captain: replaced by
    `--settings`, done with step 7.)* The busy/idle hooks, `feedbackDrafts` and
    attribution go into a firstmate-owned `state/<id>.claude-settings.json`
@@ -169,6 +175,23 @@ without the worker changing anything.
     the root PowerShell is visible to `pane process-info`), `stat -c %a`, `ps
     -o`, `mkfifo` users (`bin/fm-pr-lib.sh`, `bin/fm-watch.sh`,
     `bin/fm-procevent.sh`).
+
+**Open from the 2026-09-29 review of steps 4–8** (fixed then: `--no-optional-locks`
+dirt probe, machine-wide leases, the idle-branch rule, the scouts-only rule,
+`release` refusing a recorded task, an unknown `config/workspace` stopping the
+spawn, workbench keys no longer duplicated on relaunch):
+- `fm-claude-trust.sh --workbench-clone` accepts any lease file the user owns;
+  tie it to the lease folder and a confirmed pool row.
+- The trust key's `C:/` form relies on MSYS argument conversion; convert with
+  `cygpath -m`, record the clone's on-disk name, assert the exact key in a test.
+- Confirmations match the id only; store `id` and root together.
+- Discovery refuses the whole pool when two sites serve one clone, and accepts a
+  root name with a space; skip the duplicate, validate the id.
+- Lease-leak windows: a spawn killed between the lease write and
+  `SPAWN_LEASE_TAKEN=1`; a fresh spawn reusing an old lease of the same id
+  without a dirt check; `validate_workbench_clone` never compares `clone=`.
+- Tests: workbench relaunch, an abort after the lease, trust refusals, lease
+  lock contention.
 
 **Exit criteria:** the lock holds; the task completes and is cleaned up; M's
 clone, `workbench.cmd` and `settings.local.json` are byte-identical before and
