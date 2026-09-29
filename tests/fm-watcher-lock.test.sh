@@ -63,10 +63,12 @@ import sys
 
 script = r'''
 . "$1"
-bash -c 'trap "" TERM; kill -STOP "$$"; exec sleep 300' &
+# Keep the child off the harness pipes, which taskkill cannot reach past its exec.
+bash -c 'trap "" TERM; kill -STOP "$$"; exec sleep 300' </dev/null >/dev/null 2>&1 &
 pid=$!
 for i in $(seq 1 100); do
-  state=$(ps -p "$pid" -o stat=)
+  # Git Bash and Cygwin ps has no -o; their /proc stat carries the state letter.
+  state=$(ps -p "$pid" -o stat= 2>/dev/null || sed 's/.*) //; s/ .*//' "/proc/$pid/stat" 2>/dev/null)
   case "$state" in *T*) break ;; esac
   sleep 0.01
 done
@@ -76,12 +78,18 @@ rc=$?
 [ "$rc" = 124 ] || exit 21
 ! kill -0 "$pid" 2>/dev/null || exit 22
 '''
-p = subprocess.Popen([os.environ.get("BASH", "bash"), "-c", script, "_", sys.argv[1]],
+# This suite already swept stale fixtures; a second sweep eats the deadline on slow hosts.
+env = dict(os.environ, FM_TEST_SKIP_ORPHAN_REAP="1")
+p = subprocess.Popen([os.environ.get("BASH", "bash"), "-c", script, "_", sys.argv[1]], env=env,
                      start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 try:
     out, err = p.communicate(timeout=15)
 except subprocess.TimeoutExpired:
-    os.killpg(p.pid, signal.SIGKILL)
+    if hasattr(os, "killpg"):
+        os.killpg(p.pid, signal.SIGKILL)
+    else:
+        # Native Windows Python has no process groups; kill the Bash tree instead.
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
     p.communicate()
     raise SystemExit("wait_for_exit hung after its deadline on a stopped child")
 if p.returncode or "survived TERM; sending KILL" not in err:
