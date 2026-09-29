@@ -217,7 +217,8 @@ fm_workbench_from_iis_rows() {
 # which are modified in every served clone by design. The clone's own
 # Switch-Site.ps1 is the single list of them, so a change to that list needs no
 # change here. Only an unstaged modification of one of them is tolerated; a
-# staged one could be committed and is dirt like any other.
+# staged one could be committed and is dirt like any other. An untracked
+# .codegraph/ (CodeGraph's local index) is always ignored.
 
 # Print the repo-relative paths (forward slashes) Switch-Site.ps1 in clone $1
 # rewrites, or nothing when the clone has no Switch-Site.ps1.
@@ -245,6 +246,8 @@ fm_workbench_clone_dirt() {  # <posix-clone>
     xy=${entry:0:2}
     path=${entry:3}
     case "$xy" in R* | C*) skip=1 ;; esac
+    # .codegraph/ is a local code-index cache CodeGraph keeps in a clone, never work.
+    case "$xy $path" in '?? .codegraph/' | '?? .codegraph/'*) continue ;; esac
     if [ "$xy" = ' M' ] && [ -n "$tolerated" ] && printf '%s\n' "$tolerated" | grep -qxF "$path"; then
       continue
     fi

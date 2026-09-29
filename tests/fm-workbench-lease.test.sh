@@ -117,6 +117,11 @@ test_only_unstaged_switch_site_configs_count_as_clean() {
   assert_equals "$rc" 4 "a config Switch-Site.ps1 does not list is dirt"
   git -C "$clone" checkout -q -- Other/App.config
 
+  mkdir -p "$clone/.codegraph"
+  printf 'index\n' > "$clone/.codegraph/graph.db"
+  run_in "$dir" lease t1 Nexon4 >/dev/null || fail "an untracked .codegraph/ index blocked the lease"
+  run_in "$dir" release t1 >/dev/null
+
   printf 'new\n' > "$clone/untracked.txt"
   rc=0; run_in "$dir" lease t1 Nexon4 >/dev/null 2>&1 || rc=$?
   assert_equals "$rc" 4 "an untracked file is dirt"
