@@ -320,9 +320,11 @@ sync_project() {
     return 0
   fi
   # Both sides are physical paths (git resolves --show-toplevel through symlinks),
-  # so a symlinked clone dir still compares equal to its own root.
+  # so a symlinked clone dir still compares equal to its own root. Compare file
+  # identity rather than spelling: native Windows git prints C:/... where
+  # pwd -P prints /c/... for the same directory.
   proj_abs=$(cd "$PROJ" && pwd -P) || proj_abs=""
-  if [ "$proj_top" != "$proj_abs" ]; then
+  if [ -z "$proj_abs" ] || ! [ "$proj_top" -ef "$proj_abs" ]; then
     echo "$label: skipped: not a clone root (git would act on $proj_top)"
     return 0
   fi

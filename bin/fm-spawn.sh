@@ -4694,12 +4694,17 @@ EOF
 // never clear the worker's busy state. The session.idle touch stays the
 // watcher's wake NOTIFICATION, never current-state truth.
 import { execFile } from "node:child_process";
+// Native Windows cannot exec a .sh file directly (EFTYPE), so run it through bash there.
+const fmBusyEvent = (args) =>
+  process.platform === "win32"
+    ? ["bash", ["$FM_ROOT/bin/fm-busy-event.sh", ...args]]
+    : ["$FM_ROOT/bin/fm-busy-event.sh", args];
 const busyEvent = (state, event) =>
   new Promise((resolve) => {
-    execFile("$FM_ROOT/bin/fm-busy-event.sh", [
+    execFile(...fmBusyEvent([
       "apply", "$STATE_REAL", "$ID", state,
       "--gen", "$BUSY_GEN", "--source", "opencode-plugin", "--event", event,
-    ], () => resolve());
+    ]), () => resolve());
   });
 export const FmBusyState = async () => {
   let activeSession = null;
@@ -4750,12 +4755,17 @@ EOF
 // tool calls) and stays a wake NOTIFICATION touch for the watcher, never
 // current-state truth.
 import { execFile } from "node:child_process";
+// Native Windows cannot exec a .sh file directly (EFTYPE), so run it through bash there.
+const fmBusyEvent = (args: string[]): [string, string[]] =>
+  process.platform === "win32"
+    ? ["bash", ["$FM_ROOT/bin/fm-busy-event.sh", ...args]]
+    : ["$FM_ROOT/bin/fm-busy-event.sh", args];
 const busyEvent = (state: string, event: string) =>
   new Promise<void>((resolve) => {
-    execFile("$FM_ROOT/bin/fm-busy-event.sh", [
+    execFile(...fmBusyEvent([
       "apply", "$STATE_REAL", "$ID", state,
       "--gen", "$BUSY_GEN", "--source", "pi-ext", "--event", event,
-    ], () => resolve());
+    ]), () => resolve());
   });
 export default function (pi: any) {
   pi.on("agent_start", () => busyEvent("busy", "agent-start"));
@@ -4771,9 +4781,9 @@ export default function (pi: any) {
     const now = Date.now();
     if (now - lastProgress < 1000) return;
     lastProgress = now;
-    execFile("$FM_ROOT/bin/fm-busy-event.sh", [
+    execFile(...fmBusyEvent([
       "progress", "$STATE_REAL", "$ID", "--gen", "$BUSY_GEN",
-    ]);
+    ]));
   });
 }
 EOF
@@ -4798,12 +4808,17 @@ EOF
 // inner turn boundary and stays a wake NOTIFICATION touch for the watcher,
 // never current-state truth.
 import { execFile } from "node:child_process";
+// Native Windows cannot exec a .sh file directly (EFTYPE), so run it through bash there.
+const fmBusyEvent = (args: string[]): [string, string[]] =>
+  process.platform === "win32"
+    ? ["bash", ["$FM_ROOT/bin/fm-busy-event.sh", ...args]]
+    : ["$FM_ROOT/bin/fm-busy-event.sh", args];
 const busyEvent = (state: string, event: string) =>
   new Promise<void>((resolve) => {
-    execFile("$FM_ROOT/bin/fm-busy-event.sh", [
+    execFile(...fmBusyEvent([
       "apply", "$STATE_REAL", "$ID", state,
       "--gen", "$BUSY_GEN", "--source", "omp-ext", "--event", event,
-    ], () => resolve());
+    ]), () => resolve());
   });
 export default function (pi: any) {
   pi.on("agent_start", () => busyEvent("busy", "agent-start"));
