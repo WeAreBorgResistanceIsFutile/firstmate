@@ -1,7 +1,8 @@
 # Suites nexon/windows-tests.sh does not run on the Windows (Git Bash) setup.
 # One suite name per line (tests/<name>.test.sh), then " # " and the reason.
-# Only this fork's setup is supported - the herdr backend, the claude, codex and
-# pi harnesses, local second mates only. Upstream tests stay unedited so the
+# Only this fork's setup is supported - the herdr backend, claude as the only
+# firstmate host (primary and second mates), claude, codex and
+# pi as workers, local second mates only. Upstream tests stay unedited so the
 # fork keeps merging cleanly; an unsupported feature's suite is listed here.
 # A suite that mixes supported and unsupported cases stays in the run.
 
@@ -38,6 +39,21 @@ fm-omp-primary-live-e2e # omp (Oh My Pi) harness unused
 fm-opencode-primary-live-e2e # opencode harness unused
 fm-rovo-harness # rovo harness unused
 fm-rovo-signals-live-e2e # rovo harness unused
+
+# Pi and Codex as the firstmate host - claude is the only host on this fork.
+# Pi and Codex stay supported as workers, so their worker-side suites still run.
+fm-afk-pi-herdr-return-e2e # Pi as firstmate host unused
+fm-calm-pi-extension # Pi as firstmate host unused
+fm-calm-pi-queue-retention-live-e2e # Pi as firstmate host unused
+fm-pi-branch-extension # Pi as firstmate host unused
+fm-pi-branch-live-e2e # Pi as firstmate host unused
+fm-pi-branch-responsiveness-live-e2e # Pi as firstmate host unused
+fm-pi-codex-native # Pi as firstmate host unused
+fm-pi-primary-live-e2e # Pi as firstmate host unused
+fm-pi-primary-types # Pi as firstmate host unused
+fm-pi-watch-extension # Pi as firstmate host unused
+fm-pi-windows-shell-invocation # Pi as firstmate host unused
+fm-codex-continuity-live-e2e # Codex as firstmate host unused
 
 # Remote second mates (SSH transport and remote hosts) - second mates are local only.
 fm-on # SSH transport for remote second mates
