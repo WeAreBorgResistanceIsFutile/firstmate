@@ -25,7 +25,9 @@ BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 TMP_ROOT=$(fm_test_tmproot fm-backlog-read-bound-tests)
 trap fm_test_cleanup EXIT
 
-BOUND_SECS=2
+# Scaled: a latched skip must beat one bound, and on Git Bash the skip path's
+# own process starts alone can outlast an unscaled 2s.
+BOUND_SECS=$((2 * FM_TEST_POLL_SCALE))
 # Generous enough that a slow CI box never flakes, far below the unbounded hang
 # (300s per read) and below the session-start budget the defect consumed.
 BOUND_CEILING=30

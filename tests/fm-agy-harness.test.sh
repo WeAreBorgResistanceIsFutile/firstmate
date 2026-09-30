@@ -271,13 +271,17 @@ test_herdr_done_with_live_registry_stays_live() {
 }
 
 test_herdr_registered_status_over_a_shell_only_pane_is_stale_not_live() {
-  local dir out shell_pid
+  local dir out shell_pid pane_pid
   dir="$TMP_ROOT/herdr-stale"; mkdir -p "$dir"
   # The descendant walk reads the REAL process table, so the canned pane shell
   # must be a process this test owns and can prove alive: a short-lived sleep.
   sleep 30 & shell_pid=$!
+  # Herdr reports native pids, and on Git Bash the walk reads Win32_Process, so
+  # the canned pane names the sleep by its Windows pid there.
+  pane_pid=$shell_pid
+  [ ! -r "/proc/$shell_pid/winpid" ] || pane_pid=$(cat "/proc/$shell_pid/winpid")
   printf '%s\n' '{"result":{"agent":{"agent":"agy","agent_status":"done","pane_id":"w9:p1"}}}' > "$dir/agent-get.json"
-  agy_herdr_process_info_body "$shell_pid" bash > "$dir/process-info.json"
+  agy_herdr_process_info_body "$pane_pid" bash > "$dir/process-info.json"
   out=$(agy_herdr_agent_state "$dir")
   kill "$shell_pid" 2>/dev/null || true
   [ "$out" = stale-agent ] || fail "a registered status over a proven shell-only pane must read stale-agent, got '$out'"
@@ -696,7 +700,7 @@ test_agy_hung_listing_is_cut_off_and_launches() {
     "$FAKEBIN_DIR" "$id" --model gemini-3.8-flash-low) || rc=$?
   elapsed=$(( $(date +%s) - started ))
   expect_code 0 "$rc" "a hung model listing must not block the spawn"
-  [ "$elapsed" -lt 20 ] || fail "the model probe was not cut off by its bound (took ${elapsed}s)"
+  [ "$elapsed" -lt $((20 * FM_TEST_POLL_SCALE)) ] || fail "the model probe was not cut off by its bound (took ${elapsed}s)"
   assert_contains "$out" "did not answer within 1s" "a hung listing launched without its timeout notice"
   [ -s "$CASE_DIR/launch.log" ] || fail "a hung listing produced no launch command"
   assert_contains "$(cat "$CASE_DIR/launch.log")" "--model 'gemini-3.8-flash-low'" \
@@ -716,7 +720,7 @@ test_agy_zero_model_timeout_is_clamped_to_the_default_bound() {
     "$FAKEBIN_DIR" "$id" --model gemini-3.8-flash-low) || rc=$?
   elapsed=$(( $(date +%s) - started ))
   expect_code 0 "$rc" "a hung listing with a zero bound must not block the spawn"
-  [ "$elapsed" -lt 25 ] || fail "a zero model bound disabled the deadline (took ${elapsed}s)"
+  [ "$elapsed" -lt $((25 * FM_TEST_POLL_SCALE)) ] || fail "a zero model bound disabled the deadline (took ${elapsed}s)"
   assert_contains "$out" "did not answer within 15s" \
     "a zero model bound was not clamped to the documented default"
   [ -s "$CASE_DIR/launch.log" ] || fail "a zero model bound produced no launch command"

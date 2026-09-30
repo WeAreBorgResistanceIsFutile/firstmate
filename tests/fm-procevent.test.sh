@@ -742,7 +742,7 @@ assert_not_contains "$quiet_out" "not-autohandled" \
 # makes "no wake" a real observation instead of a race the test won by being
 # early.
 QUIET_HANDLED="$HEMPTY/state/procevent-inbox/$quiet_id.1.handled"
-for _ in $(seq 1 100); do
+for _ in $(seq 1 $((100 * FM_TEST_POLL_SCALE))); do
   [ -f "$QUIET_HANDLED" ] && break
   sleep 0.1
 done
@@ -828,9 +828,9 @@ assert_contains "$list_out" "task:worker-1/listening" \
 PATH="$MULTI_BIN:$PATH" LAVISH_AXI_HOST=recovery.example LAVISH_AXI_PORT=34387 FM_HOME="$HMULTI" \
   pe "$HMULTI" start "$multi_id" > "$MULTI_ROOT/run1" 2>&1 &
 MULTI_RUN=$!
-for _ in $(seq 1 100); do [ "$(cat "$MULTI_ROOT/count" 2>/dev/null || true)" = 1 ] && break; sleep 0.02; done
+for _ in $(seq 1 $((100 * FM_TEST_POLL_SCALE))); do [ "$(cat "$MULTI_ROOT/count" 2>/dev/null || true)" = 1 ] && break; sleep 0.02; done
 touch "$MULTI_ROOT/trigger1"
-for _ in $(seq 1 100); do [ -f "$HMULTI/state/worker-1.inbox/001.msg" ] && break; sleep 0.02; done
+for _ in $(seq 1 $((100 * FM_TEST_POLL_SCALE))); do [ -f "$HMULTI/state/worker-1.inbox/001.msg" ] && break; sleep 0.02; done
 [ -f "$HMULTI/state/worker-1.inbox/001.msg" ] \
   || fail "worker-owned feedback did not reach the worker inbox"
 [ -z "$(wake_payloads "$HMULTI")" ] \
@@ -873,25 +873,25 @@ PATH="$MULTI_BIN:$PATH" FM_HOME="$HMULTI" \
   "$ROOT/bin/fm-procevent-lavish.sh" arm "$MULTI_ART" --for worker-1 \
   --agent-reply-file "$MULTI_ROOT/reply2" >/dev/null
 wait "$MULTI_RUN" || true
-for _ in $(seq 1 100); do
+for _ in $(seq 1 $((100 * FM_TEST_POLL_SCALE))); do
   PATH="$MULTI_BIN:$PATH" pe "$HMULTI" reconcile >/dev/null 2>&1 || true
   [ "$(cat "$MULTI_ROOT/count" 2>/dev/null || true)" = 2 ] && break
   sleep 0.03
 done
 touch "$MULTI_ROOT/trigger2"
-for _ in $(seq 1 100); do [ -f "$HMULTI/state/worker-1.inbox/002.msg" ] && break; sleep 0.02; done
+for _ in $(seq 1 $((100 * FM_TEST_POLL_SCALE))); do [ -f "$HMULTI/state/worker-1.inbox/002.msg" ] && break; sleep 0.02; done
 [ -f "$HMULTI/state/worker-1.inbox/002.msg" ] \
   || fail "the next worker-owned feedback did not reach the worker inbox"
 PATH="$MULTI_BIN:$PATH" FM_HOME="$HMULTI" \
   "$ROOT/bin/fm-procevent-lavish.sh" arm "$MULTI_ART" --for worker-1 \
   --agent-reply-file "$MULTI_ROOT/reply3" >/dev/null
-for _ in $(seq 1 100); do
+for _ in $(seq 1 $((100 * FM_TEST_POLL_SCALE))); do
   PATH="$MULTI_BIN:$PATH" pe "$HMULTI" reconcile >/dev/null 2>&1 || true
   [ "$(cat "$MULTI_ROOT/count" 2>/dev/null || true)" = 3 ] && break
   sleep 0.03
 done
 touch "$MULTI_ROOT/trigger3"
-for _ in $(seq 1 100); do [ -f "$HMULTI/state/worker-1.inbox/003.msg" ] && break; sleep 0.02; done
+for _ in $(seq 1 $((100 * FM_TEST_POLL_SCALE))); do [ -f "$HMULTI/state/worker-1.inbox/003.msg" ] && break; sleep 0.02; done
 [ -f "$HMULTI/state/procevent-inbox/$multi_id.1.handled" ] \
   || fail "first worker-owned round was not acknowledged by re-arm"
 [ -f "$HMULTI/state/procevent-inbox/$multi_id.2.handled" ] \
@@ -1950,7 +1950,7 @@ case "$orphan_leader" in ''|*[!0-9]*) fail "could not read the runner leader pid
 printf '%s\n' "$orphan_leader" > "$ORPHAN_GROUP"
 
 kill -KILL "$orphan_leader" 2>/dev/null || fail "could not kill the runner leader"
-for _ in $(seq 1 50); do kill -0 "$orphan_leader" 2>/dev/null || break; sleep 0.1; done
+for _ in $(seq 1 $((50 * FM_TEST_POLL_SCALE))); do kill -0 "$orphan_leader" 2>/dev/null || break; sleep 0.1; done
 kill -0 "$orphan_leader" 2>/dev/null && fail "the runner leader survived SIGKILL"
 kill -0 -"$orphan_leader" 2>/dev/null || fail "fixture invalid: the owned child group did not survive the leader"
 
@@ -2001,7 +2001,7 @@ assert_contains "$orphan_again" "uncertain=1" \
 kill -0 -"$orphan_leader" 2>/dev/null \
   || fail "announcing the strand signalled the leaderless process group"
 kill -KILL -"$orphan_leader" 2>/dev/null || true
-for _ in $(seq 1 50); do kill -0 -"$orphan_leader" 2>/dev/null || break; sleep 0.1; done
+for _ in $(seq 1 $((50 * FM_TEST_POLL_SCALE))); do kill -0 -"$orphan_leader" 2>/dev/null || break; sleep 0.1; done
 kill -0 -"$orphan_leader" 2>/dev/null && fail "could not clean up the leaderless fixture group"
 pe "$HG" retire orphan-src >/dev/null
 pass "an ambiguous leaderless group is preserved without replacement"
@@ -2053,7 +2053,7 @@ case "$sr_leader" in ''|*[!0-9]*) fail "could not read the state-root fixture le
 
 kill -KILL -"$sr_leader" 2>/dev/null || true
 kill -KILL "$sr_leader" 2>/dev/null || true
-for _ in $(seq 1 50); do kill -0 -"$sr_leader" 2>/dev/null || break; sleep 0.1; done
+for _ in $(seq 1 $((50 * FM_TEST_POLL_SCALE))); do kill -0 -"$sr_leader" 2>/dev/null || break; sleep 0.1; done
 kill -0 "$sr_leader" 2>/dev/null && fail "the state-root fixture leader survived SIGKILL"
 kill -0 -"$sr_leader" 2>/dev/null && fail "fixture invalid: the owned group outlived the whole generation"
 # Drift the live state root away from what the claim recorded.
@@ -2253,7 +2253,7 @@ wait "$sr5_start_pid" \
   || fail "start failed after reclaiming the undrifted claim: $(cat "$TMP_ROOT/reused-plain-start.out")"
 assert_contains "$(cat "$TMP_ROOT/reused-plain-start.out")" "captured:" \
   "the reclaiming start did not capture the source's result"
-for _ in $(seq 1 50); do kill -0 -"$sr5_leader" 2>/dev/null || break; sleep 0.1; done
+for _ in $(seq 1 $((50 * FM_TEST_POLL_SCALE))); do kill -0 -"$sr5_leader" 2>/dev/null || break; sleep 0.1; done
 pe "$HSR5" retire reused-plain-src >/dev/null 2>&1 || true
 pass "start reclaims a reused-pid claim whose leftovers can still be tidied"
 
@@ -2328,7 +2328,7 @@ ep_reconcile "started=1" 0 "a repaired source did not confirm"
 assert_contains "$ep_out" "failed=0" "a repaired source was still reported failed: $ep_out"
 [ "$(launch_failed_wake_count "$HEP" episode-src)" = 1 ] \
   || fail "a confirmed launch produced a launch-failed wake: $ep_out"
-for _ in $(seq 1 100); do
+for _ in $(seq 1 $((100 * FM_TEST_POLL_SCALE))); do
   [ -e "$FM_PROCEVENT_CLAIM_ROOT/episode-src.claim" ] || break
   sleep 0.1
 done
@@ -2435,7 +2435,7 @@ FC_READY="$TMP_ROOT/fast-hold-ready"; FC_RELEASE="$TMP_ROOT/fast-hold-release"
 hold_source_lock zz-hold-src "$FC_READY" "$FC_RELEASE"
 wait_for "$FC_READY" || fail "the fast-source fixture could not hold a source lock"
 (
-  for _ in $(seq 1 600); do
+  for _ in $(seq 1 $((600 * FM_TEST_POLL_SCALE))); do
     if first_result "$HFC" aa-fast-src >/dev/null 2>&1 \
       && [ ! -e "$HFC/state/procevent/aa-fast-src.runner" ] \
       && [ ! -e "$FM_PROCEVENT_CLAIM_ROOT/aa-fast-src.claim" ]; then
@@ -2667,7 +2667,7 @@ sweep_pid_two=$(sed -n '2p' "$FM_PROCEVENT_CLAIM_ROOT/sweep-two.claim")
 # claim - so the sweep would race that exit and see one source or two depending
 # on which won.
 kill -KILL -"$sweep_pid_two" 2>/dev/null || true
-for _ in $(seq 1 50); do kill -0 "$sweep_pid_two" 2>/dev/null || break; sleep 0.1; done
+for _ in $(seq 1 $((50 * FM_TEST_POLL_SCALE))); do kill -0 "$sweep_pid_two" 2>/dev/null || break; sleep 0.1; done
 kill -0 "$sweep_pid_two" 2>/dev/null \
   && fail "the claim-only sweep fixture runner did not stop"
 assert_present "$FM_PROCEVENT_CLAIM_ROOT/sweep-two.claim" \
@@ -2784,7 +2784,7 @@ FM_PROCEVENT_MAX_OUTPUT_BYTES=100 pe "$HG" reconcile >/dev/null
 wait_for "$NOISY_PID" || fail "noisy source child did not start"
 noisy_child=$(cat "$NOISY_PID")
 staged=
-for _ in $(seq 1 100); do
+for _ in $(seq 1 $((100 * FM_TEST_POLL_SCALE))); do
   for candidate in "$HG/state/procevent"/.noisy-src.*.output; do
     if [ -f "$candidate" ]; then staged=$candidate; break; fi
   done
@@ -2901,7 +2901,7 @@ SH
         "proved escalation releases its claim after $post_term_case identity"
       ;;
   esac
-  for _ in $(seq 1 50); do kill -0 -"$POST_TERM_RUNNER" 2>/dev/null || break; sleep 0.1; done
+  for _ in $(seq 1 $((50 * FM_TEST_POLL_SCALE))); do kill -0 -"$POST_TERM_RUNNER" 2>/dev/null || break; sleep 0.1; done
   kill -0 -"$POST_TERM_RUNNER" 2>/dev/null && fail "the post-TERM fixture group survived: $post_term_case"
   pe "$HPOST_TERM" retire post-term-src >/dev/null
   pass "stop $post_term_case evidence preserves the proved-stop boundary"
@@ -3713,7 +3713,7 @@ kill -0 -"$REUSED_GROUP_RUNNER" 2>/dev/null \
 rm -f "$REUSED_GROUP_MARKER"
 PATH="$REUSED_GROUP_BIN:$PATH" FM_PROC_ROOT_OVERRIDE="$TMP_ROOT/no-reused-group-proc" \
   pe "$HREUSED_GROUP" retire reused-runner-group-src >/dev/null
-for _ in $(seq 1 50); do kill -0 -"$REUSED_GROUP_RUNNER" 2>/dev/null || break; sleep 0.1; done
+for _ in $(seq 1 $((50 * FM_TEST_POLL_SCALE))); do kill -0 -"$REUSED_GROUP_RUNNER" 2>/dev/null || break; sleep 0.1; done
 kill -0 -"$REUSED_GROUP_RUNNER" 2>/dev/null \
   && fail "retirement left the group alive once runner identity was unambiguous"
 pass "a detected ambiguous reused-PID group is not signalled"
@@ -4041,7 +4041,7 @@ PL
     pe "$HPROOF" retire proof-src >"$HPROOF/retire.log" 2>&1 &
   PROOF_STOP=$!
   proof_transition=0
-  for _ in $(seq 1 100); do
+  for _ in $(seq 1 $((100 * FM_TEST_POLL_SCALE))); do
     if [ "$proof_state" = zombie ]; then
       case "$(fm_test_ps stat "$PROOF_PID")" in
         Z*) proof_transition=1; break ;;
@@ -4055,7 +4055,7 @@ PL
   proof_survivor=0
   kill -0 "$PROOF_CHILD" 2>/dev/null && proof_survivor=1
   proof_reaped=0
-  for _ in $(seq 1 100); do
+  for _ in $(seq 1 $((100 * FM_TEST_POLL_SCALE))); do
     if ! kill -0 "$PROOF_CHILD" 2>/dev/null; then proof_reaped=1; break; fi
     sleep 0.1
   done
@@ -4313,7 +4313,7 @@ for interval in 08 010; do
     pe "$HINTERVAL" reconcile >/dev/null
   wait_for "$HINTERVAL/poll.descendant" \
     || fail "a zero-prefixed decimal interval ($interval) prevented the listener from starting"
-  for _ in $(seq 1 100); do
+  for _ in $(seq 1 $((100 * FM_TEST_POLL_SCALE))); do
     grep -qx "$expected_half" "$HINTERVAL/sleeps" 2>/dev/null && break
     sleep 0.1
   done
@@ -4488,13 +4488,13 @@ PATH="$READY/bin:$PATH" FM_HOME="$READY/home" \
 assert_contains "$(cat "$READY/arm.out")" "armed: $ready_id" "a live listener was not reported ready"
 [ -e "$FM_PROCEVENT_CLAIM_ROOT/$ready_id.claim" ] \
   || fail "arm reported ready without a listener claim"
-for _ in $(seq 1 50); do
+for _ in $(seq 1 $((50 * FM_TEST_POLL_SCALE))); do
   grep -q started "$READY_MARK" && break
   sleep 0.05
 done
 grep -q started "$READY_MARK" || fail "arm reported ready before the listener command ran"
 touch "$READY_RELEASE"
-for _ in $(seq 1 50); do
+for _ in $(seq 1 $((50 * FM_TEST_POLL_SCALE))); do
   [ -e "$FM_PROCEVENT_CLAIM_ROOT/$ready_id.claim" ] || break
   sleep 0.05
 done
@@ -4530,14 +4530,14 @@ touch "$delay_rel"
 wait "$delay_arm" || fail "arm failed after the delayed listener was allowed to start: $(cat "$DELAY/arm.err")"
 assert_contains "$(cat "$DELAY/arm.out")" "armed: $delay_id" \
   "arm did not report ready once the delayed listener was running"
-for _ in $(seq 1 50); do
+for _ in $(seq 1 $((50 * FM_TEST_POLL_SCALE))); do
   grep -q started "$READY_MARK" && break
   sleep 0.05
 done
 grep -q started "$READY_MARK" || fail "the delayed listener never ran"
 touch "$READY_RELEASE"
 wait "$HOLDER_PID" 2>/dev/null || true
-for _ in $(seq 1 50); do
+for _ in $(seq 1 $((50 * FM_TEST_POLL_SCALE))); do
   [ -e "$FM_PROCEVENT_CLAIM_ROOT/$delay_id.claim" ] || break
   sleep 0.05
 done
@@ -4674,7 +4674,7 @@ cp "$drain_claim" "$DRAIN/generation-one.claim"
 touch "$DRAIN/release1"
 wait_for "$DRAIN/home/state/procevent-inbox/$drain_id.1.result" \
   || fail "the first generation of the draining fixture never captured its round"
-for _ in $(seq 1 100); do
+for _ in $(seq 1 $((100 * FM_TEST_POLL_SCALE))); do
   [ -e "$drain_claim" ] || break
   sleep 0.05
 done
@@ -4685,7 +4685,7 @@ setsid sleep 60 &
 drain_holder=$!
 # Read the identity only once the holder has exec'd sleep: mid-exec its cmdline
 # can read empty, and a pre-exec identity would never match the live holder.
-for _ in $(seq 1 100); do
+for _ in $(seq 1 $((100 * FM_TEST_POLL_SCALE))); do
   case "$(fm_test_ps comm "$drain_holder")" in *sleep) break ;; esac
   sleep 0.05
 done

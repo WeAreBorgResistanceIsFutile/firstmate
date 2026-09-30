@@ -405,17 +405,25 @@ trap 'fm_test_cleanup; exit 131' QUIT
 
 # Suites that run with a minimal PATH default it to FM_TEST_BASE_PATH or
 # /usr/bin:/bin:/usr/sbin:/sbin, where Linux keeps git and jq. Git for Windows
-# keeps git in /mingw64/bin and jq usually lives outside the MSYS tree, so on
-# Git Bash the minimal PATH also names /mingw64/bin and a directory holding only
-# a jq link (never jq's own directory, which may carry tools a case hides).
+# keeps git in /mingw64/bin and jq and python3 usually live outside the MSYS
+# tree, so on Git Bash the minimal PATH also names /mingw64/bin and a directory
+# holding only exec wrappers for them (never their own directories, which may
+# carry tools a case hides). A wrapper, not a link: MSYS `ln -s` copies, and a
+# copied python3.exe cannot find its runtime.
 if [ -z "${FM_TEST_BASE_PATH:-}" ]; then
   case "$(uname -s 2>/dev/null)" in
     MINGW*)
       FM_TEST_BASE_PATH=/usr/bin:/bin:/usr/sbin:/sbin:/mingw64/bin
-      if _fm_test_jq=$(command -v jq) && [ "${_fm_test_jq#/usr/bin/}" = "$_fm_test_jq" ]         && _fm_test_jq_dir=$(fm_test_tmproot fm-test-base-jq); then
-        ln -s "$_fm_test_jq" "$_fm_test_jq_dir/jq" && FM_TEST_BASE_PATH="$FM_TEST_BASE_PATH:$_fm_test_jq_dir"
+      if _fm_test_tool_dir=$(fm_test_tmproot fm-test-base-tools); then
+        for _fm_test_tool in jq python3; do
+          _fm_test_tool_path=$(command -v "$_fm_test_tool") || continue
+          [ "${_fm_test_tool_path#/usr/bin/}" = "$_fm_test_tool_path" ] || continue
+          printf '#!/bin/bash\nexec %q "$@"\n' "$_fm_test_tool_path" >"$_fm_test_tool_dir/$_fm_test_tool"
+          chmod +x "$_fm_test_tool_dir/$_fm_test_tool"
+        done
+        FM_TEST_BASE_PATH="$FM_TEST_BASE_PATH:$_fm_test_tool_dir"
       fi
-      unset _fm_test_jq _fm_test_jq_dir
+      unset _fm_test_tool _fm_test_tool_dir _fm_test_tool_path
       export FM_TEST_BASE_PATH
       ;;
   esac

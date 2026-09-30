@@ -18,6 +18,7 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-afk-return-tests)
+fm_test_fake_harness_setup "$TMP_ROOT/ps-shim"
 
 install_runner() {  # <case-dir>
   local dir=$1

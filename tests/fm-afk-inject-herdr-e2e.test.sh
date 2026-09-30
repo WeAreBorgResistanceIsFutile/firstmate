@@ -49,6 +49,12 @@ herdr_forget_inherited_pane
 fail() { printf 'not ok - %s\n' "$1" >&2; cleanup_all; exit 1; }
 pass() { printf 'ok - %s\n' "$1"; }
 
+# Git Bash forks slowly, so one daemon cycle takes many seconds there; the
+# fixed observation windows below scale with it (tests/lib.sh uses the same 6).
+WAIT_SCALE=1
+case "$(uname -s 2>/dev/null)" in MINGW* | MSYS* | CYGWIN*) WAIT_SCALE=6 ;; esac
+scaled_sleep() { sleep $(($1 * WAIT_SCALE)); }
+
 SESSION="fm-lab-afk-herdr-e2e-$$"
 export HERDR_SESSION="$SESSION"
 STATE_DIR=
@@ -120,6 +126,10 @@ for _ in $(seq 1 100); do
   sleep 0.1
 done
 [ "$PANE_READY" = true ] || fail "the supervisor pane's shell did not become ready"
+# Herdr's Windows build opens panes in PowerShell; switch this one into Git Bash
+# the way fm-spawn does before any POSIX command (a no-op elsewhere).
+fm_backend_herdr_windows_shell_prepare "$SUPERVISOR_TARGET" \
+  || fail "could not switch the supervisor pane into Git Bash"
 
 # A second, independent live task tab in the same workspace, mirroring the tmux
 # e2e's fake fm-fake-c1 crewmate window - not required by scan_signals (which
@@ -194,11 +204,12 @@ redraw() {
 }
 submit_line() {
   local _line=$_buf _c _hex
-  if [ "${_line:0:1}" = "$MARK" ]; then
-    _c="injection"
-  else
-    _c="user"
-  fi
+  # A prefix match, not ${_line:0:1}: that takes one byte of the three-byte
+  # marker when the pane's locale is not UTF-8 (a Git Bash pane on Windows).
+  case "$_line" in
+    "$MARK"*) _c="injection" ;;
+    *) _c="user" ;;
+  esac
   _hex=$(printf '%s' "$_line" | od -An -tx1 | tr -d ' \n')
   printf '%s\t%s\t%s\n' "$_hex" "$_line" "$_c" >> "$LOG"
   _buf=
@@ -357,7 +368,7 @@ test_scenario_a() {
 
   echo "done: PR https://example.test/pr/100" > "$STATE_DIR/fake-c1.status"
 
-  sleep 8
+  scaled_sleep 8
 
   if grep -q 'Supervisor escalate' "$LOG_FILE"; then
     fail "Scenario A: daemon injected while the herdr pane had pending input"
@@ -370,7 +381,7 @@ test_scenario_a() {
   fm_backend_herdr_send_key "$SUPERVISOR_TARGET" Enter
   sleep 0.5
 
-  sleep 8
+  scaled_sleep 8
 
   grep -q 'human draft text' "$LOG_FILE" \
     || fail "Scenario A: human text not in log after submit"
@@ -411,7 +422,7 @@ test_scenario_b() {
 
   echo "done: PR https://example.test/pr/200" > "$STATE_DIR/fake-c1.status"
 
-  sleep 10
+  scaled_sleep 10
 
   local marker_count
   marker_count=$(awk -F '\t' '{ hex=$1; count += gsub(/e281a3/, "", hex) } END { print count + 0 }' "$LOG_FILE")
@@ -443,7 +454,7 @@ test_scenario_c() {
   start_daemon
 
   echo "done: PR https://example.test/pr/300" > "$STATE_DIR/fake-c1.status"
-  sleep 8
+  scaled_sleep 8
 
   local marker_count
   marker_count=$(awk -F '\t' '{ hex=$1; count += gsub(/e281a3/, "", hex) } END { print count + 0 }' "$LOG_FILE")
@@ -510,7 +521,7 @@ test_scenario_d_max_defer() {
 
   echo "needs-decision: pick A or B" > "$STATE_DIR/fake-c1.status"
 
-  sleep 12
+  scaled_sleep 12
 
   [ -s "$STATE_DIR/.subsuper-inject-wedged" ] \
     || fail "Scenario D: a persistently pending real herdr composer never raised the max-defer wedge alarm"

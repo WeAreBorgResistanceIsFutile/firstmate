@@ -34,6 +34,32 @@ record of decisions, risks and open work is `HANDOFF.md` at the repo root.
 
   Check it with `printf '{"a":1,"b":2}' | jq -r '.a,.b' | od -c`: the output
   must contain no `\r`.
+- **Make Node 22 the Volta default and wrap the shim.** The repo pins Node 22
+  in `package.json`, but Volta falls back to its machine default outside the
+  clone, and Node 20 cannot load the `.ts` modules that fixtures copy into Temp.
+  Run `volta install node@22.22.3` (installed tools keep their own pinned
+  Node). The Volta `node` shim also drops any argument that contains a newline,
+  which breaks multi-line `node -e`, so put this in `~/bin/node` and `chmod +x`
+  it:
+
+  ```bash
+  #!/usr/bin/env bash
+  node_exe=$(volta which node) || exit 127
+  exec "$node_exe" "$@"
+  ```
+
+  Check it with `node -e 'console.log(1)` + a newline + `console.log(2)'`: it
+  must print both lines.
+- **Check out real symlinks.** The clone tracks four symlinks
+  (`.claude/skills`, `.agents/skills/firstmate-calm`, two `.pi` modules).
+  With `core.symlinks=false` they arrive as text files, and Claude Code then
+  loads none of the project skills. Symlink creation must work (Developer Mode
+  or the create-symlink privilege), then run `git config core.symlinks true`
+  in the clone and re-check out those four paths.
+- **Line endings need nothing per host.** `.gitattributes` forces LF on every
+  tracked text file, so `core.autocrlf=true` no longer turns templates,
+  helpers and test captures CRLF. A clone made before that rule landed must
+  re-check out its CRLF files once (`git ls-files --eol | grep w/crlf`).
 
 ### The workbenches
 

@@ -632,6 +632,10 @@ run_bootstrap() {  # <case-dir>
 
 test_backend_resolution_preserves_config_errors() {
   local case_dir project_config user_config config resolver out rc probe
+  if ! fm_test_unreadable_files_supported; then
+    skip "fm-backlog-atomicity: ${FUNCNAME[0]} needs an unreadable file, which this host cannot make"
+    return 0
+  fi
   case_dir="$TMP_ROOT/backend-resolution-errors"
   project_config="$case_dir/home/.tasks.toml"
   user_config="$case_dir/user-home/.tasks-axi/config.toml"
