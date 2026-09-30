@@ -56,6 +56,12 @@ record of decisions, risks and open work is `HANDOFF.md` at the repo root.
   loads none of the project skills. Symlink creation must work (Developer Mode
   or the create-symlink privilege), then run `git config core.symlinks true`
   in the clone and re-check out those four paths.
+- **Install actionlint.** `fm-lint` runs the workflow lint, and
+  `bin/fm-install-actionlint.sh` knows only Linux and macOS. Download the
+  pinned version (`bin/fm-lint-workflows.sh --required-version`) as
+  `actionlint_<v>_windows_amd64.zip` from the rhysd/actionlint release, check
+  its SHA-256 against that release's `checksums.txt` (whose `linux_amd64` line
+  must match the installer's pin), and put `actionlint.exe` in `~/bin`.
 - **Line endings need nothing per host.** `.gitattributes` forces LF on every
   tracked text file, so `core.autocrlf=true` no longer turns templates,
   helpers and test captures CRLF. A clone made before that rule landed must

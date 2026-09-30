@@ -60,3 +60,4 @@ fm-spawn-compact-adviser-disable-remote # remote second mates
 
 # Other.
 fm-ci-workflow # parses the upstream GitHub Actions YAML with Ruby; covered by upstream Linux CI
+fm-nm-test-contract # parses .no-mistakes.yaml with Ruby; covered by upstream Linux CI
