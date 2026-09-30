@@ -1,0 +1,62 @@
+# Suites nexon/windows-tests.sh does not run on the Windows (Git Bash) setup.
+# One suite name per line (tests/<name>.test.sh), then " # " and the reason.
+# Only this fork's setup is supported - the herdr backend, the claude, codex and
+# pi harnesses, local second mates only. Upstream tests stay unedited so the
+# fork keeps merging cleanly; an unsupported feature's suite is listed here.
+# A suite that mixes supported and unsupported cases stays in the run.
+
+# Runtime backends other than herdr (none of them is installed here).
+fm-backend-orca # Orca backend unused
+fm-spawn-orca-worktree # Orca backend unused
+fm-backend-cmux # cmux backend unused
+fm-backend-cmux-smoke # cmux backend unused
+fm-cmux-claude-composer-live-e2e # cmux backend unused
+fm-backend-tmux-smoke # tmux backend unused
+fm-tmux-agent-liveness # tmux backend unused
+fm-tmux-submit-busy # tmux backend unused
+fm-backend-zellij # zellij backend unused
+fm-backend-zellij-smoke # zellij backend unused
+
+# Harnesses other than claude, codex and pi.
+fm-agy-harness # agy harness unused
+fm-agy-signals-live-e2e # agy harness unused
+fm-send-agy-confirm # agy harness unused
+fm-cursor-harness # cursor harness unused
+fm-cursor-primary # cursor harness unused
+fm-cursor-primary-live-e2e # cursor harness unused
+fm-devin-harness # devin harness unused
+fm-devin-signals-live-e2e # devin harness unused
+fm-gemini-harness # gemini harness unused
+fm-grok-harness # grok harness unused
+fm-grok-continuity-live-e2e # grok harness unused
+fm-grok-stop-live-e2e # grok harness unused
+fm-kimi-harness # kimi harness unused
+fm-muse-harness # muse harness unused
+fm-muse-signals-live-e2e # muse harness unused
+fm-omp-harness # omp (Oh My Pi) harness unused
+fm-omp-primary-live-e2e # omp (Oh My Pi) harness unused
+fm-opencode-primary-live-e2e # opencode harness unused
+fm-rovo-harness # rovo harness unused
+fm-rovo-signals-live-e2e # rovo harness unused
+
+# Remote second mates (SSH transport and remote hosts) - second mates are local only.
+fm-on # SSH transport for remote second mates
+fm-bootstrap-network-parallel # remote second-mate network probes
+fm-peek-remote # remote second mates
+fm-remote-backlog-handoff # remote second mates
+fm-remote-doctor # remote second mates
+fm-remote-entrypoint # remote second mates
+fm-remote-herdr-guard # remote second mates
+fm-remote-job # remote second mates
+fm-remote-job-orphan-reap # remote second mates
+fm-remote-reply # remote second mates
+fm-remote-secondmate-lifecycle-e2e # remote second mates
+fm-remote-secondmate-parent-binding # remote second mates
+fm-remote-secondmate-relaunch # remote second mates
+fm-remote-secondmate-trace-context # remote second mates
+fm-remote-transport-lanes # remote second mates
+fm-send-remote-delivery # remote second mates
+fm-spawn-compact-adviser-disable-remote # remote second mates
+
+# Other.
+fm-ci-workflow # parses the upstream GitHub Actions YAML with Ruby; covered by upstream Linux CI

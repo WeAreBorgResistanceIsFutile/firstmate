@@ -251,6 +251,16 @@ skips cases needing an unreadable file. Suites run clean on Git Bash:
 blocking arm fixture now waits for the superseding hook instead of a fixed 6 s,
 which a slow host outlasted).
 
+Scope: only this fork's Windows setup is supported - the herdr backend, the
+claude, codex and pi harnesses, and local second mates - not everything
+firstmate supports on Linux and macOS. Upstream files stay as close to upstream
+as possible so the fork keeps merging cleanly. Run the suites with
+`nexon/windows-tests.sh`. A suite for an unsupported feature (other backends,
+other harnesses, remote second mates, the Ruby-parsed CI workflow check) is
+listed in `nexon/windows-test-ignore.txt` with its reason, never edited or
+skipped inside the upstream test file; a suite mixing supported and unsupported
+cases stays in the run.
+
 Known and not fixed:
 - **Fork cost.** Each subshell costs about 40 ms, so everything is 10-50× slower
   than on Linux: the turn-end guard about 3 s, one watcher PR-poll validation
