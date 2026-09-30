@@ -13,7 +13,9 @@
 // procedure below stays private to this file. The CLI entry point at the bottom
 // runs only when this module is invoked directly, never on import.
 
-import path from "node:path";
+// Commands are POSIX shell text on every host, so paths are compared as POSIX
+// paths; node:path on Windows would normalize bin/x to bin\x and match nothing.
+import { posix as path } from "node:path";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -912,8 +914,17 @@ function blessedProgram(analysis, context) {
   return true;
 }
 
+// On Windows the shell hands --root and --home over as C:/x (MSYS argument
+// conversion), while the command text names the same place as /c/x.
+function shellPath(value) {
+  if (process.platform !== "win32") return value;
+  const drive = /^([A-Za-z]):[\\/](.*)$/s.exec(value);
+  const posix = drive ? `/${drive[1].toLowerCase()}/${drive[2]}` : value;
+  return posix.replace(/\\/g, "/");
+}
+
 function decision(command, root, home) {
-  const context = { root: path.normalize(root), home: path.normalize(home), protectedVariables: new Set(), watcherPatterns: new Set(), watcherPids: new Set() };
+  const context = { root: path.normalize(shellPath(root)), home: path.normalize(shellPath(home)), protectedVariables: new Set(), watcherPatterns: new Set(), watcherPids: new Set() };
   const analysis = analyzeProgram(command, context);
   if (analysis.broadKill) return deny("broad-watcher-kill");
   if (analysis.error && analysis.protectedFound) return deny("unclassifiable-protected-command");
