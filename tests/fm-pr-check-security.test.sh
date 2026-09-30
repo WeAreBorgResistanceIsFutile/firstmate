@@ -372,9 +372,7 @@ INVALID_URLS=(
   'https://github.com/o/r/pull/1 '
   'https://github.com/o /r/pull/1'
   $'https://github.com/o/r/pull/1\t'
-  $'https://github.com/o/r/pull/1\r'
   $'https://github.com/o/r/pull/1\nnext'
-  $'https://github.com/o/r/pull/1\r\nnext'
   $'https://github.com/o/r/pull/1\001'
   $'https://github.com/o/r/pull/1\033'
   $'https://github.com/o/r/pull/1\177'
@@ -437,6 +435,14 @@ INVALID_URLS=(
   'https://github.com/o/'\''"r"'\''/pull/1'
   "https://github.com/o/r/pull/1'"
   'https://github.com/o/r/pull/1"'
+)
+# Git Bash's bash drops a CR written as $'\r' inside a compound array
+# assignment, which would turn these CR rows into valid URLs there. Expanding
+# the CR from a scalar keeps them meaningful on every host.
+CR=$'\r'
+INVALID_URLS+=(
+  "https://github.com/o/r/pull/1$CR"
+  "https://github.com/o/r/pull/1$CR"$'\nnext'
 )
 
 # shellcheck disable=SC2016 # Literal shell syntax is task-ID test data.
@@ -747,9 +753,9 @@ test_valid_recording_and_merge_derivation() {
     || fail "canonical pr metadata was not exact"
   grep -qxF "pr_head=$expected" "$dir/home/state/task-a.meta" || fail "PR head metadata was not exact"
   cmp -s "$POLL" "$dir/home/state/task-a.check.sh" || fail "published check was not byte-for-byte static"
-  [ "$(file_mode "$dir/home/state/task-a.check.sh")" = 600 ] || fail "published check mode was not 0600"
-  [ "$(file_mode "$dir/home/state/task-a.pr-poll")" = 600 ] || fail "published sidecar mode was not 0600"
-  [ "$(file_mode "$dir/home/state/task-a.pr-poll-registration")" = 600 ] \
+  fm_test_mode_is "$dir/home/state/task-a.check.sh" 600 || fail "published check mode was not 0600"
+  fm_test_mode_is "$dir/home/state/task-a.pr-poll" 600 || fail "published sidecar mode was not 0600"
+  fm_test_mode_is "$dir/home/state/task-a.pr-poll-registration" 600 \
     || fail "published registration mode was not 0600"
   [ "$(fm_pr_file_link_count "$dir/home/state/task-a.check.sh")" = 1 ] \
     && [ "$(fm_pr_file_link_count "$dir/home/state/task-a.pr-poll")" = 1 ] \
@@ -877,13 +883,19 @@ SH
 # Otherwise the product default applies: a tighter override silently kills a
 # correct poll on a loaded machine, and the watcher then only retries it or
 # exits on a later check's wake without the poll's result.
+# One watcher run's wall-clock bound. Git Bash pays tens of milliseconds per
+# fork, so a single poll-validation cycle there takes close to a minute; the
+# larger bound keeps these cases about retirement rather than host speed.
+WATCH_BOUND_SECONDS=60
+case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) WATCH_BOUND_SECONDS=300 ;; esac
+
 run_watcher_bounded() {
   local home=$1 fakebin=$2 check_interval=${FM_TEST_CHECK_INTERVAL:-0} watch_root=${FM_TEST_WATCH_ROOT:-$ROOT}
   local check_timeout_env=(-u FM_CHECK_TIMEOUT)
   [ -z "${FM_TEST_CHECK_TIMEOUT:-}" ] || check_timeout_env=("FM_CHECK_TIMEOUT=$FM_TEST_CHECK_TIMEOUT")
   shift 2
-  perl -MPOSIX=WNOHANG -MTime::HiRes=time,sleep -e 'my $pause=shift; my $left=60; my $pid=fork; die unless defined $pid; if (!$pid) { exec @ARGV } my $last=time; while (waitpid($pid, WNOHANG) == 0) { my $now=time; $left -= $now - $last unless length $pause && -e $pause; $last=$now; if ($left <= 0) { kill "TERM", $pid; waitpid $pid, 0; exit 124 } sleep 0.02 } exit($? >> 8)' \
-    "${FM_TEST_WATCH_BOUND_PAUSE:-}" env "${check_timeout_env[@]}" \
+  perl -MPOSIX=WNOHANG -MTime::HiRes=time,sleep -e 'my $left=shift; my $pause=shift; my $pid=fork; die unless defined $pid; if (!$pid) { exec @ARGV } my $last=time; while (waitpid($pid, WNOHANG) == 0) { my $now=time; $left -= $now - $last unless length $pause && -e $pause; $last=$now; if ($left <= 0) { kill "TERM", $pid; waitpid $pid, 0; exit 124 } sleep 0.02 } exit($? >> 8)' \
+    "$WATCH_BOUND_SECONDS" "${FM_TEST_WATCH_BOUND_PAUSE:-}" env "${check_timeout_env[@]}" \
       FM_HOME="$home" FM_ROOT_OVERRIDE="$watch_root" FM_CHECK_INTERVAL="$check_interval" \
       FM_POLL=0.02 FM_HEARTBEAT=999999 FM_SIGNAL_GRACE=0 PATH="$fakebin:$BASE_PATH" "$WATCH" "$@"
 }
@@ -1074,9 +1086,9 @@ SH
     [ ! -s "$dir/watch.err" ] || fail "concurrent watcher observed a partial artifact error"
     if [ -e "$dir/home/state/$id.check.sh" ]; then
       cmp -s "$POLL" "$dir/home/state/$id.check.sh" || fail "concurrent publication check bytes changed"
-      [ "$(file_mode "$dir/home/state/$id.check.sh")" = 600 ] || fail "concurrent check mode was not private"
-      [ "$(file_mode "$dir/home/state/$id.pr-poll")" = 600 ] || fail "concurrent sidecar mode was not private"
-      [ "$(file_mode "$dir/home/state/$id.pr-poll-registration")" = 600 ] \
+      fm_test_mode_is "$dir/home/state/$id.check.sh" 600 || fail "concurrent check mode was not private"
+      fm_test_mode_is "$dir/home/state/$id.pr-poll" 600 || fail "concurrent sidecar mode was not private"
+      fm_test_mode_is "$dir/home/state/$id.pr-poll-registration" 600 \
         || fail "concurrent registration mode was not private"
       fm_pr_poll_artifacts_valid "$dir/home/state" "$id" "$POLL" \
         || fail "concurrent publication did not leave canonical provenance"
@@ -3207,7 +3219,7 @@ SH
   [ -e "$dir/registration-renamed" ] || fail "re-record never replaced the registration under its locks"
   cmp -s "$original" "$state/task-a.pr-poll-registration" \
     || fail "re-recorded registration differs from the one published on the live device"
-  [ "$(file_mode "$state/task-a.pr-poll-registration")" = 600 ] || fail "re-recorded registration is not private"
+  fm_test_mode_is "$state/task-a.pr-poll-registration" 600 || fail "re-recorded registration is not private"
   fm_pr_poll_artifacts_valid "$state" task-a "$POLL" || fail "re-recorded poll is not strictly authenticated"
   grep -F 'pr view https://github.com/o/r/pull/1 --json state' "$dir/gh.log" >/dev/null \
     || fail "re-recorded poll did not run its validated check in the same cycle"

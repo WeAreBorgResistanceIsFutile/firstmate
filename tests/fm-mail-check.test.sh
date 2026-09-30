@@ -63,7 +63,9 @@ enter_mailbox() {
   mkdir -p "$home/bin" "$FAKEBIN"
   [ -e "$home/bin/fm-wake-lib.sh" ] || ln -s "$ROOT/bin/fm-wake-lib.sh" "$home/bin/fm-wake-lib.sh"
   [ -e "$home/bin/fm-path-lib.sh" ] || ln -s "$ROOT/bin/fm-path-lib.sh" "$home/bin/fm-path-lib.sh"
-  printf '%s\n' "$generator" > "$FAKEBIN/python3"
+  # The shebang matters on Git Bash: MSYS only counts a file starting with #!
+  # (or a PE binary) as executable, so without it the real python3 is found.
+  printf '#!/usr/bin/env bash\n%s\n' "$generator" > "$FAKEBIN/python3"
   chmod +x "$FAKEBIN/python3"
 }
 
@@ -338,6 +340,10 @@ test_fail_closed_poll_after_wake_reports_the_failure() {
   # and unwritable). The standing check must report that failure, not the
   # earlier success-wake line, or the news key hides the real condition.
   local home out
+  if ! fm_test_unreadable_files_supported; then
+    skip "fm-mail-check: ${FUNCNAME[0]} needs an unreadable file, which this host cannot make"
+    return 0
+  fi
   home=$(make_home fail-closed-after-wake)
   write_env "$home"
   enter_mailbox "$home" \
@@ -360,6 +366,10 @@ test_repeated_status4_fail_closed_still_wakes() {
   # returns 1 without printing woke-for. A second identical poll must still
   # print so the watcher drains the queued check: mail <uid> row.
   local home out wakeq
+  if ! fm_test_unreadable_files_supported; then
+    skip "fm-mail-check: ${FUNCNAME[0]} needs an unreadable file, which this host cannot make"
+    return 0
+  fi
   home=$(make_home repeat-status4)
   write_env "$home"
   enter_mailbox "$home" \

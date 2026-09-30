@@ -33,6 +33,16 @@ FM_TEST_LIB_SOURCED=1
 # suite's fixtures were written against.
 umask 022
 
+# Git Bash, MSYS and Cygwin default `ln -s` to copying its target (and failing
+# for a missing one), so a symlink fixture would silently be a regular file.
+# Ask for native NTFS symlinks instead; without Developer Mode or the symlink
+# privilege the fixture then fails visibly rather than testing the wrong thing.
+case "$(uname -s 2>/dev/null)" in
+  MINGW* | MSYS*) export MSYS="${MSYS:+$MSYS }winsymlinks:nativestrict" ;;
+  CYGWIN*) export CYGWIN="${CYGWIN:+$CYGWIN }winsymlinks:nativestrict" ;;
+esac
+
+
 # Fixture Git isolation for every suite that reaches this library; the helper's
 # header owns the invariant and the layers it deliberately leaves in force.
 # shellcheck source=tests/git-config-helpers.sh
@@ -82,6 +92,147 @@ fail() {
 
 pass() {
   printf 'ok - %s\n' "$1"
+}
+
+# FM_TEST_POLL_SCALE: multiply a "wait until it happens" polling bound by this.
+# Git Bash pays tens of milliseconds per fork, so work that settles in well
+# under a second on Linux can take several there; a bound that only ends a
+# wait for something that must happen costs time only when a case is failing.
+FM_TEST_POLL_SCALE=1
+case "$(uname -s 2>/dev/null)" in MINGW* | MSYS* | CYGWIN*) FM_TEST_POLL_SCALE=6 ;; esac
+
+# fm_test_unreadable_files_supported: true when `chmod 0000` really stops this
+# process reading a file. On Git Bash it only sets the read-only attribute, and
+# a shell holding backup privileges ignores even an NTFS deny rule, so a case
+# that needs an unreadable file checks this and reports a skip instead.
+fm_test_unreadable_files_supported() {
+  if [ -z "${FM_TEST_UNREADABLE_PROBE:-}" ]; then
+    local probe
+    probe=$(mktemp) || return 1
+    printf 'x\n' > "$probe"
+    chmod 0000 "$probe"
+    if cat "$probe" >/dev/null 2>&1; then FM_TEST_UNREADABLE_PROBE=no; else FM_TEST_UNREADABLE_PROBE=yes; fi
+    chmod 0600 "$probe"
+    rm -f -- "$probe"
+  fi
+  [ "$FM_TEST_UNREADABLE_PROBE" = yes ]
+}
+
+# fm_test_readonly_dirs_supported: true when `chmod 0500` on a directory really
+# stops this process creating files in it. Git Bash ignores it on NTFS, so a
+# case that injects a write failure that way checks this and skips that step.
+fm_test_readonly_dirs_supported() {
+  if [ -z "${FM_TEST_READONLY_DIR_PROBE:-}" ]; then
+    local probe
+    probe=$(mktemp -d) || return 1
+    chmod 0500 "$probe"
+    if : > "$probe/x" 2>/dev/null; then FM_TEST_READONLY_DIR_PROBE=no; else FM_TEST_READONLY_DIR_PROBE=yes; fi
+    chmod 0700 "$probe"
+    rm -rf -- "$probe"
+  fi
+  [ "$FM_TEST_READONLY_DIR_PROBE" = yes ]
+}
+
+# fm_test_mode_is <path> <mode>: true when <path> carries octal <mode>. Git
+# Bash, MSYS and Cygwin synthesize POSIX modes on NTFS, so there only the
+# file's existence is checked, the same way bin/fm-pr-lib.sh's
+# fm_pr_file_mode_matches treats that host.
+fm_test_mode_is() {
+  [ -e "$1" ] || return 1
+  case "$(uname -s 2>/dev/null)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac
+  if [ "$(uname)" = Darwin ]; then
+    [ "$(/usr/bin/stat -f %Lp "$1")" = "$2" ]
+  else
+    [ "$(stat -c %a "$1")" = "$2" ]
+  fi
+}
+
+# fm_test_ps <pgid|ppid|stat|comm> <pid>: one `ps -o <field>= -p <pid>` value,
+# whitespace-trimmed. Git Bash, MSYS and Cygwin ps has no -o, so there the
+# value is read from /proc/<pid> instead. Fails when the process is gone.
+fm_test_ps() {
+  local field=$1 pid=$2 value
+  case "$(uname -s 2>/dev/null)" in
+    MINGW* | MSYS* | CYGWIN*)
+      case "$field" in
+        pgid | ppid) value=$(cat "/proc/$pid/$field" 2>/dev/null) || return 1 ;;
+        stat) value=$(awk '{ print $3 }' "/proc/$pid/stat" 2>/dev/null) || return 1 ;;
+        comm) value=$(awk -F '\t' '$1 == "Name:" { print $2 }' "/proc/$pid/status" 2>/dev/null) || return 1 ;;
+        *) return 2 ;;
+      esac
+      ;;
+    *) value=$(ps -o "$field=" -p "$pid" 2>/dev/null) || return 1 ;;
+  esac
+  value=$(printf '%s' "$value" | tr -d '[:space:]')
+  [ -n "$value" ] || return 1
+  printf '%s\n' "$value"
+}
+
+# fm_test_isolated_path <fakebin>: the PATH for a case that runs with only the
+# tools linked into <fakebin>. An MSYS executable reached through a link
+# outside /usr/bin cannot load msys-2.0.dll, so on Git Bash, MSYS and Cygwin
+# /usr/bin stays on PATH; a case hiding jq then needs jq to live elsewhere.
+fm_test_isolated_path() {
+  case "$(uname -s 2>/dev/null)" in
+    MINGW* | MSYS* | CYGWIN*)
+      [ ! -e /usr/bin/jq ] && [ ! -e /usr/bin/jq.exe ] \
+        || fail "test host keeps jq in /usr/bin, so an isolated PATH cannot hide it"
+      printf '%s:/usr/bin\n' "$1"
+      ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+# fm_test_msys_ps_shim <dir>: on Git Bash, MSYS and Cygwin, write <dir>/ps that
+# answers `ps -o comm=|args=|ppid= -p <pid>` (either order) from /proc and
+# passes every other form to the real ps. With FM_PROC_WINDOWS=0 this lets the
+# session-lock ancestry walk an all-MSYS fixture tree the way it walks a Linux
+# one: like procps, comm is the invoked name (so a `claude` symlink to bash
+# reads as claude), capped at 15 characters. A no-op on other hosts.
+fm_test_msys_ps_shim() {
+  local dir=$1 real
+  case "$(uname -s 2>/dev/null)" in MINGW* | MSYS* | CYGWIN*) ;; *) return 0 ;; esac
+  real=$(command -v ps) || return 1
+  mkdir -p "$dir"
+  cat > "$dir/ps" <<SH
+#!/usr/bin/env bash
+field= pid=
+args=("\$@")
+while [ "\$#" -gt 0 ]; do
+  case "\$1" in
+    -o) field=\$2; shift 2 ;;
+    -p) pid=\$2; shift 2 ;;
+    *) exec "$real" "\${args[@]}" ;;
+  esac
+done
+case "\$field" in comm= | args= | ppid=) ;; *) exec "$real" "\${args[@]}" ;; esac
+case "\$pid" in '' | *[!0-9]*) exit 1 ;; esac
+[ -r "/proc/\$pid/cmdline" ] || exit 1
+case "\$field" in
+  ppid=) cat "/proc/\$pid/ppid" 2>/dev/null || exit 1 ;;
+  args=) tr '\0' ' ' < "/proc/\$pid/cmdline" | sed 's/ \$//'; echo ;;
+  comm=) argv0=\$(tr '\0' '\n' < "/proc/\$pid/cmdline" | head -n 1); argv0=\${argv0##*/}; printf '%s\n' "\${argv0:0:15}" ;;
+esac
+SH
+  chmod +x "$dir/ps"
+}
+
+# fm_test_fake_harness_setup <dir>: let a `claude` symlink to bash read as the
+# harness. On Git Bash the session-lock ancestry normally comes from
+# Win32_Process, which reports the resolved bash.exe and native pids, so the
+# walk passes the fake and reaches whatever real harness runs the suite. There
+# this exports FM_PROC_WINDOWS=0 and puts fm_test_msys_ps_shim first on PATH,
+# so the walk reads the fixture's MSYS tree instead. A no-op on other hosts.
+fm_test_fake_harness_setup() {
+  case "$(uname -s 2>/dev/null)" in MINGW* | MSYS* | CYGWIN*) ;; *) return 0 ;; esac
+  fm_test_msys_ps_shim "$1" || fail "could not write the ps shim for the fake harness"
+  export FM_PROC_WINDOWS=0
+  export PATH="$1:$PATH"
+}
+
+# skip <reason>: report a case this host cannot exercise, without failing.
+skip() {
+  printf 'skip - %s\n' "$1"
 }
 
 # --- self-cleaning temp root ------------------------------------------------
@@ -251,6 +402,24 @@ trap 'fm_test_cleanup; exit 130' INT
 trap 'fm_test_cleanup; exit 143' TERM
 trap 'fm_test_cleanup; exit 129' HUP
 trap 'fm_test_cleanup; exit 131' QUIT
+
+# Suites that run with a minimal PATH default it to FM_TEST_BASE_PATH or
+# /usr/bin:/bin:/usr/sbin:/sbin, where Linux keeps git and jq. Git for Windows
+# keeps git in /mingw64/bin and jq usually lives outside the MSYS tree, so on
+# Git Bash the minimal PATH also names /mingw64/bin and a directory holding only
+# a jq link (never jq's own directory, which may carry tools a case hides).
+if [ -z "${FM_TEST_BASE_PATH:-}" ]; then
+  case "$(uname -s 2>/dev/null)" in
+    MINGW*)
+      FM_TEST_BASE_PATH=/usr/bin:/bin:/usr/sbin:/sbin:/mingw64/bin
+      if _fm_test_jq=$(command -v jq) && [ "${_fm_test_jq#/usr/bin/}" = "$_fm_test_jq" ]         && _fm_test_jq_dir=$(fm_test_tmproot fm-test-base-jq); then
+        ln -s "$_fm_test_jq" "$_fm_test_jq_dir/jq" && FM_TEST_BASE_PATH="$FM_TEST_BASE_PATH:$_fm_test_jq_dir"
+      fi
+      unset _fm_test_jq _fm_test_jq_dir
+      export FM_TEST_BASE_PATH
+      ;;
+  esac
+fi
 
 # fm_test_reap_orphans: best-effort sweep for fixture roots left behind by a
 # prior run that was killed hard enough to skip the traps above (e.g. a

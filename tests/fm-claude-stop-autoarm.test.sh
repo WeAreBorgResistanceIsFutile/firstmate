@@ -21,6 +21,7 @@ FAKEBIN=$(fm_fakebin "$TMP_ROOT/fakebin")
 ln -s /bin/bash "$FAKEBIN/claude"
 FAKE_CLAUDE="$FAKEBIN/claude"
 export FAKE_CLAUDE
+fm_test_fake_harness_setup "$TMP_ROOT/ps-shim"
 
 # Copy the hook and its sourced dependencies into a fixture checkout.
 install_autoarm_scripts() {
@@ -160,8 +161,22 @@ exit 0
 SH
       ;;
     blocking-actionable)
+      # The first arm stays blocked until a later hook's arm releases it (that
+      # hook has claimed the next generation by then), bounded by the old 6 s
+      # hold. A fixed hold alone raced slow hosts, where the later hook's
+      # startup outlasted it.
+      cat >> "$dir/bin/fm-watch-arm.sh" <<SH
+if [ "\$(wc -l < "\$FM_HOME/state/arm-ran")" -ge 2 ]; then
+  : > "\$FM_HOME/state/arm-release"
+else
+  i=0
+  while [ ! -e "\$FM_HOME/state/arm-release" ] && [ "\$i" -lt $((60 * FM_TEST_POLL_SCALE)) ]; do
+    sleep 0.1
+    i=\$((i + 1))
+  done
+fi
+SH
       cat >> "$dir/bin/fm-watch-arm.sh" <<'SH'
-sleep 6
 printf 'pending:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
 touch "$FM_HOME/state/.last-watcher-beat"
 printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
@@ -522,7 +537,7 @@ test_attached_cycle_end_starts_handling_successor() {
   kill -0 "$successor" 2>/dev/null || fail "the handling successor did not outlive the hook's rewake"
   rm -f "$dir/state/successor-park"
   i=0
-  while kill -0 "$successor" 2>/dev/null && [ "$i" -lt 100 ]; do
+  while kill -0 "$successor" 2>/dev/null && [ "$i" -lt $((100 * FM_TEST_POLL_SCALE)) ]; do
     sleep 0.05
     i=$((i + 1))
   done
@@ -717,7 +732,7 @@ test_owner_mutex_contention_preserves_failure_episode_reset() {
   hook_pid=$RUN_AUTOARM_BG_PID
   i=0
   while [ ! -e "$dir/state/arm-waiting" ]; do
-    [ "$i" -lt 50 ] || fail "healthy owner never reached the reset boundary"
+    [ "$i" -lt $((50 * FM_TEST_POLL_SCALE)) ] || fail "healthy owner never reached the reset boundary"
     sleep 0.05
     i=$((i + 1))
   done
@@ -801,7 +816,7 @@ test_term_mid_arm_commits_failure_and_rewakes() {
 
   hook_pid=
   i=0
-  while [ "$i" -lt 100 ]; do
+  while [ "$i" -lt $((100 * FM_TEST_POLL_SCALE)) ]; do
     hook_pid=$(epoch_field "$dir" owner_pid)
     [ -n "$hook_pid" ] && [ -e "$dir/state/arm-ran" ] && break
     sleep 0.02
@@ -917,7 +932,7 @@ test_abandoned_claim_reclaim_reaps_dead_steal_without_nesting() {
   ' _ "$dir/bin/fm-wake-lib.sh" "$dir/state/.claude-autoarm.lock.steal" >/dev/null 2>&1 &
   holder=$!
   i=0
-  while [ "$i" -lt 50 ] && [ ! -s "$dir/state/.claude-autoarm.lock.steal/pid" ]; do
+  while [ "$i" -lt $((50 * FM_TEST_POLL_SCALE)) ] && [ ! -s "$dir/state/.claude-autoarm.lock.steal/pid" ]; do
     sleep 0.02
     i=$((i + 1))
   done
@@ -1166,7 +1181,7 @@ test_stopped_legacy_owner_is_reclaimed_with_term_pending() {
   assert_absent "$dir/state/.claude-autoarm.lock" "reclaim left the stopped owner's lock behind"
   kill -CONT "$pid" 2>/dev/null || true
   i=0
-  while [ "$i" -lt 40 ] && kill -0 "$pid" 2>/dev/null; do
+  while [ "$i" -lt $((40 * FM_TEST_POLL_SCALE)) ] && kill -0 "$pid" 2>/dev/null; do
     sleep 0.05
     i=$((i + 1))
   done
@@ -1304,7 +1319,7 @@ test_superseded_owner_goes_silent_and_never_double_translates() {
   a_pid=$RUN_AUTOARM_BG_PID
   i=0
   while [ "$(epoch_outcome "$dir")" != arming ] || [ ! -e "$dir/state/arm-ran" ]; do
-    [ "$i" -lt 50 ] || fail "owner A never published its arming claim"
+    [ "$i" -lt $((50 * FM_TEST_POLL_SCALE)) ] || fail "owner A never published its arming claim"
     sleep 0.1
     i=$((i + 1))
   done

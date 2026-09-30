@@ -20,6 +20,21 @@ record of decisions, risks and open work is `HANDOFF.md` at the repo root.
 | forge | GitHub via `gh` / `gh-axi` | on-prem Azure DevOps Server, Windows integrated auth |
 | delivery gate | `no-mistakes` | Nexon `CLAUDE.md` review chain, `complete-pr` / `bubble` skills |
 
+### Host setup (every Windows host)
+
+- **Install the LF `jq` wrapper.** jq for Windows writes CRLF, and firstmate's
+  scripts then read values with a stray CR (see the Phase 1 Windows status).
+  Put this in `~/bin/jq`, which Git Bash's profile puts first on PATH, pointing
+  at that host's real `jq.exe` (`where jq` in PowerShell), then `chmod +x` it:
+
+  ```bash
+  #!/usr/bin/env bash
+  exec /c/Users/<user>/AppData/Local/Microsoft/WinGet/Links/jq.exe -b "$@"
+  ```
+
+  Check it with `printf '{"a":1,"b":2}' | jq -r '.a,.b' | od -c`: the output
+  must contain no `\r`.
+
 ### The workbenches
 
 A workbench is a root folder holding its own permanent clone of every repo it
@@ -176,7 +191,7 @@ without the worker changing anything.
     fallback. "Captain" stays as the internal role word in the docs.
 11. **Permissions.** `config/claude-permission-mode` = `auto` (upstream defaults
     workers to `--dangerously-skip-permissions`).
-12. **Smoke test.** A scout-style task on M ("summarise how X works"): no commit,
+12. **Smoke test.** *(Done 2026-09-29.)* A scout-style task on M ("summarise how X works"): no commit,
     no build. Record every Windows failure: agent liveness through herdr (only
     the root PowerShell is visible to `pane process-info`), `stat -c %a`, `ps
     -o`, `mkfifo` users (`bin/fm-pr-lib.sh`, `bin/fm-watch.sh`,
@@ -192,6 +207,56 @@ trust key converted with `cygpath -m`; the repo folder's on-disk spelling in
 the lease; confirmations stored as id and root; discovery listing a
 twice-served clone once and skipping an unusable root name; `lease --fresh`
 closing the spawn's lease-leak windows. Still open: a workbench relaunch test.
+
+**Windows (Git Bash) status, 2026-09-29.** Fixed in the product:
+`fm_pr_file_mode_matches` (NTFS synthesizes POSIX modes, so the mode half of
+the private-file checks is skipped there; type, device and link count still
+apply); `fm_procevent_pgid` reads `/proc/<pid>/pgid` where `ps -o` is missing;
+the process-event launch-confirm window defaults to 30 s on Git Bash (a runner
+needs about 10 s to claim); herdr's pane walk uses Win32_Process; workbench
+spawns send `unset` instead of the `env -u` wrapper that dropped claude out of
+the pane's process tree. Fixed in the tests (`tests/lib.sh`): native symlinks
+(`MSYS=winsymlinks:nativestrict`), `/mingw64/bin` in the minimal PATH,
+`fm_test_mode_is`, `fm_test_ps`, `fm_test_isolated_path`, and a probe that
+skips cases needing an unreadable file. Suites run clean on Git Bash:
+`fm-backend-herdr`, `fm-spawn-workbench`, `fm-check-unregister`,
+`fm-mail-check` (2 skips), `fm-procevent-when`, `fm-turnend-guard` (1 skip),
+`fm-claude-stop-autoarm` (its
+blocking arm fixture now waits for the superseding hook instead of a fixed 6 s,
+which a slow host outlasted).
+
+Known and not fixed:
+- **Fork cost.** Each subshell costs about 40 ms, so everything is 10-50× slower
+  than on Linux: the turn-end guard about 3 s, one watcher PR-poll validation
+  cycle close to a minute, the herdr suite 26 minutes. Nothing breaks, but PR
+  polling on Windows needs a fork-lean validation path before Phase 3 relies
+  on it. Test time budgets are raised on Windows, not removed.
+- **jq for Windows writes CRLF.** Git Bash drops only a trailing CR, so every
+  line but the last of a multi-line `jq -r` result keeps one (a PR head commit
+  then fails validation). About 60 `bin/` scripts read jq output; only the herdr
+  backend wraps it in `jq -b`. Worked around per machine, not in the product: a
+  `~/bin/jq` wrapper (first on Git Bash's PATH) that execs the real `jq.exe -b`.
+  Each Windows host needs it (see Host setup).
+- **Unreadable files cannot be made.** A Git Bash shell ignores `chmod 0000`
+  and even an NTFS deny rule, so about 19 test files' "unreadable file" cases
+  skip on this host. Likewise `chmod 0500` does not make a directory read-only,
+  so `fm-procevent`'s three write-failure steps skip
+  (`fm_test_readonly_dirs_supported`).
+- **Other POSIX mode checks** outside `fm-pr-lib.sh` (`fm-bootstrap.sh`,
+  `fm-fleet-snapshot.sh`, `fm-config-inherit-lib.sh`) still compare `stat -c %a`
+  and will refuse on NTFS when their paths are reached.
+- **Wrapper launches hide the agent.** The account-pin `env -u` shed and the
+  `config/launch-env-allowlist` `env -i … /bin/sh -c` launch would drop claude
+  out of the herdr pane tree the same way `env -u` did; neither is configured
+  here.
+- **OpenCode primary plugins** (`.opencode/plugins/`) spawn `bin/*.sh` directly,
+  which Windows cannot execute (`EFTYPE`), and treat that spawn error as a pass,
+  so on Windows the OpenCode turn-end guard silently never runs;
+  `fm-primary-watch-arm.js` also calls `ps -o ppid=`. Off the Phase 2 path
+  (Claude is the primary); the test case skips on Windows.
+- **Isolated-PATH test cases** outside `fm-turnend-guard` (19 sites in 9 files)
+  still pass only a fakebin PATH; they need `fm_test_isolated_path` when those
+  suites are run.
 
 **Exit criteria:** the lock holds; the task completes and is cleaned up; M's
 clone, `workbench.cmd` and `settings.local.json` are byte-identical before and

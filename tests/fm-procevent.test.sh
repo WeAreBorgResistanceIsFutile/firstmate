@@ -150,8 +150,10 @@ count_results() {  # <home> <source-id>
   printf '%s\n' "$n"
 }
 
+# Every wait below is for something that must appear; a runner on Git Bash
+# needs about 10s just to claim, hence the tests/lib.sh poll scale.
 wait_for() {  # <file> [tries]
-  local f=$1 n=${2:-100}
+  local f=$1 n=$(( ${2:-100} * FM_TEST_POLL_SCALE ))
   for _ in $(seq 1 "$n"); do [ -s "$f" ] && return 0; sleep 0.1; done
   return 1
 }
@@ -268,9 +270,7 @@ pass "one blocking completion yields exactly one bounded normalized event"
 
 RESULT=$(first_result "$H1" src-one || true)
 [ -n "$RESULT" ] || fail "no durable result was captured"
-mode=$(PATH="${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}" bash -c \
-  '. "$1/bin/fm-pr-lib.sh"; fm_pr_file_mode "$2"' _ "$ROOT" "$RESULT")
-assert_contains "$mode" 600 "the captured result is private"
+fm_test_mode_is "$RESULT" 600 || fail "the captured result is private"
 assert_grep 'payload one' "$RESULT" "the captured result holds the source output verbatim"
 assert_grep 'lavish' "${RESULT%.result}.adapter" "the captured result retains its immutable adapter"
 assert_absent "${RESULT%.result}.handled" "publication alone never marks a result handled"
@@ -307,7 +307,7 @@ pe "$HPG" start direct-src > "$TMP_ROOT/direct-start.out" &
 direct_runner=$!
 wait_for "$FM_PROCEVENT_CLAIM_ROOT/direct-src.claim" || fail "direct start never claimed its source"
 direct_leader=$(sed -n '2p' "$FM_PROCEVENT_CLAIM_ROOT/direct-src.claim")
-direct_group=$(ps -o pgid= -p "$direct_leader" 2>/dev/null | tr -d '[:space:]')
+direct_group=$(fm_test_ps pgid "$direct_leader")
 [ "$direct_group" = "$direct_leader" ] \
   || fail "direct start claimed before leading its process group: pid=$direct_leader pgid=$direct_group"
 : > "$DIRECT_TRIGGER"
@@ -444,9 +444,8 @@ assert_contains "$private_out" "cannot durably record handling" "mode enforcemen
 assert_absent "$HPRIVATE/state/procevent-inbox/private-src.1.handled" "failed mode enforcement left an authoritative marker"
 private_out=$(umask 000; pe "$HPRIVATE" handled private-src 1)
 assert_contains "$private_out" "handled: private-src 1" "handling succeeds after private mode enforcement recovers"
-private_mode=$(PATH="${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}" bash -c \
-  '. "$1/bin/fm-pr-lib.sh"; fm_pr_file_mode "$2"' _ "$ROOT" "$HPRIVATE/state/procevent-inbox/private-src.1.handled")
-assert_contains "$private_mode" 600 "the handled marker is private under a permissive caller umask"
+fm_test_mode_is "$HPRIVATE/state/procevent-inbox/private-src.1.handled" 600 \
+  || fail "the handled marker is private under a permissive caller umask"
 pass "handled acknowledgement creation is private and fails safely"
 
 # --- a terminal result retires its source, on the adapter's verdict alone ----
@@ -939,17 +938,21 @@ PATH="$MULTI_BIN:$PATH" FM_HOME="$HMULTI" \
   || fail "a refused sibling registration consumed the owner's terminal round"
 [ ! -f "$HMULTI/state/worker-2.inbox/001.msg" ] \
   || fail "a refused sibling registration took delivery of the owner's feedback"
-chmod 0500 "$HMULTI/state/procevent"
-blocked_handled_status=0
-PATH="$MULTI_BIN:$PATH" pe "$HMULTI" handled "$multi_id" 3 \
-  >/dev/null 2>"$MULTI_ROOT/blocked-handled.err" || blocked_handled_status=$?
-chmod 0700 "$HMULTI/state/procevent"
-[ "$blocked_handled_status" -ne 0 ] \
-  || fail "an acknowledgement that could not retire the board still reported success"
-[ ! -f "$HMULTI/state/procevent-inbox/$multi_id.3.handled" ] \
-  || fail "an acknowledgement that could not retire the board still closed the round"
-[ -e "$HMULTI/state/procevent/$multi_id.source" ] \
-  || fail "a failed conclude left the board unowned"
+if fm_test_readonly_dirs_supported; then
+  chmod 0500 "$HMULTI/state/procevent"
+  blocked_handled_status=0
+  PATH="$MULTI_BIN:$PATH" pe "$HMULTI" handled "$multi_id" 3 \
+    >/dev/null 2>"$MULTI_ROOT/blocked-handled.err" || blocked_handled_status=$?
+  chmod 0700 "$HMULTI/state/procevent"
+  [ "$blocked_handled_status" -ne 0 ] \
+    || fail "an acknowledgement that could not retire the board still reported success"
+  [ ! -f "$HMULTI/state/procevent-inbox/$multi_id.3.handled" ] \
+    || fail "an acknowledgement that could not retire the board still closed the round"
+  [ -e "$HMULTI/state/procevent/$multi_id.source" ] \
+    || fail "a failed conclude left the board unowned"
+else
+  skip "an acknowledgement that cannot retire the board fails (read-only directories unsupported here)"
+fi
 PATH="$MULTI_BIN:$PATH" pe "$HMULTI" handled "$multi_id" 3 >/dev/null
 [ -f "$HMULTI/state/procevent-inbox/$multi_id.3.handled" ] \
   || fail "the owner's acknowledgement of the terminal round was not recorded"
@@ -1175,16 +1178,20 @@ wait_capture "$HCONC" "$conc_id" \
   || fail "the terminal worker-owned round never landed"
 [ -e "$HCONC/state/procevent/$conc_id.source" ] \
   || fail "the terminal round released the board before its owner acknowledged it"
-chmod 0500 "$HCONC/state/procevent-inbox"
-unrecordable_status=0
-PATH="$CONC_BIN:$PATH" pe "$HCONC" handled "$conc_id" 1 >/dev/null 2>&1 || unrecordable_status=$?
-chmod 0700 "$HCONC/state/procevent-inbox"
-[ "$unrecordable_status" -ne 0 ] \
-  || fail "an acknowledgement that could not be recorded still reported success"
-[ ! -f "$HCONC/state/procevent-inbox/$conc_id.1.handled" ] \
-  || fail "an acknowledgement that could not be recorded still closed the round"
-[ -e "$HCONC/state/procevent/$conc_id.source" ] \
-  || fail "an acknowledgement that could not be recorded still released the board it was owed"
+if fm_test_readonly_dirs_supported; then
+  chmod 0500 "$HCONC/state/procevent-inbox"
+  unrecordable_status=0
+  PATH="$CONC_BIN:$PATH" pe "$HCONC" handled "$conc_id" 1 >/dev/null 2>&1 || unrecordable_status=$?
+  chmod 0700 "$HCONC/state/procevent-inbox"
+  [ "$unrecordable_status" -ne 0 ] \
+    || fail "an acknowledgement that could not be recorded still reported success"
+  [ ! -f "$HCONC/state/procevent-inbox/$conc_id.1.handled" ] \
+    || fail "an acknowledgement that could not be recorded still closed the round"
+  [ -e "$HCONC/state/procevent/$conc_id.source" ] \
+    || fail "an acknowledgement that could not be recorded still released the board it was owed"
+else
+  skip "an acknowledgement that cannot be recorded fails (read-only directories unsupported here)"
+fi
 conclude_out=$(PATH="$CONC_BIN:$PATH" pe "$HCONC" handled "$conc_id" 1)
 assert_contains "$conclude_out" "retired: $conc_id" \
   "acknowledging the terminal round did not report the board retired"
@@ -1281,18 +1288,22 @@ wait_for "$ROLL_ROOT/replies" \
 wait_capture "$HROLL" "$roll_id" \
   || fail "the first generation's round was never captured"
 cp "$HROLL/state/procevent/$roll_id.source" "$ROLL_ROOT/generation-one.source"
-chmod 0500 "$HROLL/state/procevent-inbox"
-rollback_status=0
-PATH="$ROLL_BIN:$PATH" FM_HOME="$HROLL" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$ROLL_ART" --for worker-8 \
-  --agent-reply-file "$ROLL_ROOT/reply2" >/dev/null 2>&1 || rollback_status=$?
-chmod 0700 "$HROLL/state/procevent-inbox"
-[ "$rollback_status" -ne 0 ] \
-  || fail "a re-arm that could not acknowledge its round still reported success"
-cmp -s "$ROLL_ROOT/generation-one.source" "$HROLL/state/procevent/$roll_id.source" \
-  || fail "a failed re-arm replaced the generation the board is still running"
-[ ! -f "$HROLL/state/procevent-inbox/$roll_id.1.handled" ] \
-  || fail "a failed re-arm still acknowledged the round it could not close"
+if fm_test_readonly_dirs_supported; then
+  chmod 0500 "$HROLL/state/procevent-inbox"
+  rollback_status=0
+  PATH="$ROLL_BIN:$PATH" FM_HOME="$HROLL" \
+    "$ROOT/bin/fm-procevent-lavish.sh" arm "$ROLL_ART" --for worker-8 \
+    --agent-reply-file "$ROLL_ROOT/reply2" >/dev/null 2>&1 || rollback_status=$?
+  chmod 0700 "$HROLL/state/procevent-inbox"
+  [ "$rollback_status" -ne 0 ] \
+    || fail "a re-arm that could not acknowledge its round still reported success"
+  cmp -s "$ROLL_ROOT/generation-one.source" "$HROLL/state/procevent/$roll_id.source" \
+    || fail "a failed re-arm replaced the generation the board is still running"
+  [ ! -f "$HROLL/state/procevent-inbox/$roll_id.1.handled" ] \
+    || fail "a failed re-arm still acknowledged the round it could not close"
+else
+  skip "a re-arm that cannot acknowledge its round fails (read-only directories unsupported here)"
+fi
 PATH="$ROLL_BIN:$PATH" FM_HOME="$HROLL" \
   "$ROOT/bin/fm-procevent-lavish.sh" arm "$ROLL_ART" --for worker-8 \
   --agent-reply-file "$ROLL_ROOT/reply2" >/dev/null
@@ -3827,7 +3838,7 @@ ORPHAN_DESCENDANT=$(cat "$TMP_ROOT/orphan-dead.descendant")
 
 # The reproduction condition itself: the listener is already an orphan in the
 # kernel's sense before anything is asserted about reaping it.
-orphan_ppid=$(ps -o ppid= -p "$ORPHAN_PID" 2>/dev/null | tr -d '[:space:]')
+orphan_ppid=$(fm_test_ps ppid "$ORPHAN_PID")
 [ "$orphan_ppid" = 1 ] \
   || fail "the listener under test was not reparented away from its session (ppid $orphan_ppid)"
 kill -0 -"$ORPHAN_PID" 2>/dev/null \
@@ -4032,7 +4043,7 @@ PL
   proof_transition=0
   for _ in $(seq 1 100); do
     if [ "$proof_state" = zombie ]; then
-      case "$(ps -o stat= -p "$PROOF_PID" 2>/dev/null | tr -d '[:space:]')" in
+      case "$(fm_test_ps stat "$PROOF_PID")" in
         Z*) proof_transition=1; break ;;
       esac
     elif ! kill -0 "$PROOF_PID" 2>/dev/null; then
@@ -4675,7 +4686,7 @@ drain_holder=$!
 # Read the identity only once the holder has exec'd sleep: mid-exec its cmdline
 # can read empty, and a pre-exec identity would never match the live holder.
 for _ in $(seq 1 100); do
-  case "$(ps -p "$drain_holder" -o comm= 2>/dev/null)" in *sleep) break ;; esac
+  case "$(fm_test_ps comm "$drain_holder")" in *sleep) break ;; esac
   sleep 0.05
 done
 drain_holder_identity=$(bash -c '. "$1/bin/fm-wake-lib.sh"; fm_pid_identity "$2"' _ "$ROOT" "$drain_holder") \

@@ -534,8 +534,18 @@ stale_registration_case() {  # <dir-suffix> <agent_status> <process-info-body|->
       fm_backend_herdr_tab_is_husk fmtest w1:p2 && printf husk || printf refused' "$ROOT"
 }
 
+# The pid herdr reports for a pane's shell. Herdr is native on Windows, so it
+# reports the native pid, and so does the Windows process table the descendant
+# walk reads; a test's own $! is an MSYS pid there.
+pane_pid() {  # <pid>
+  case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) cat "/proc/$1/winpid" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
 shell_only_process_info() {  # <shell-pid>
-  printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":[{"pid":%s,"name":"zsh","argv0":"zsh","argv":["-zsh"],"cmdline":"-zsh"}]}}}' "$1" "$1" "$1"
+  printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":[{"pid":%s,"name":"zsh","argv0":"zsh","argv":["-zsh"],"cmdline":"-zsh"}]}}}' "$(pane_pid "$1")" "$(pane_pid "$1")" "$(pane_pid "$1")"
 }
 
 test_stale_registration_over_a_shell_only_pane_is_agent_free() {
@@ -667,7 +677,7 @@ settle_registration_case() {  # <dir-suffix> <polls> <process-info-body>...
 }
 
 prompt_helper_process_info() {  # <shell-pid>
-  printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":[{"pid":99998,"name":"starship","argv":["/usr/local/bin/starship","prompt","--continuation"]},{"pid":%s,"name":"zsh","argv0":"zsh","argv":["-zsh"],"cmdline":"-zsh"}]}}}' "$1" "$1" "$1"
+  printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":[{"pid":99998,"name":"starship","argv":["/usr/local/bin/starship","prompt","--continuation"]},{"pid":%s,"name":"zsh","argv0":"zsh","argv":["-zsh"],"cmdline":"-zsh"}]}}}' "$(pane_pid "$1")" "$(pane_pid "$1")" "$(pane_pid "$1")"
 }
 
 test_transient_prompt_helper_settles_into_stale_agent() {
@@ -701,6 +711,15 @@ test_exhausted_settle_window_keeps_a_non_shell_foreground_live() {
 
 test_registered_agent_with_an_agent_descendant_outside_the_foreground_stays_alive() {
   local lab sleep_bin shell_pid out shell_verdict
+  case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*)
+      # Not expressible on Windows: the symlinked `pi` is sleep.exe to the
+      # native process table, and sh's exec of it leaves the pane shell's
+      # native process tree.
+      pass "herdr stale registration: agent-named descendant case skipped on Windows"
+      return
+      ;;
+  esac
   sleep_bin=$(command -v sleep) || fail "sleep not found"
   lab="$TMP_ROOT/stale-reg-descendant-bin"; mkdir -p "$lab"
   # A symlink to a real long-running binary so the kernel records `pi` as the
@@ -730,6 +749,15 @@ test_registered_agent_with_an_agent_descendant_outside_the_foreground_stays_aliv
 
 test_agent_descendant_under_a_spaced_install_path_stays_alive() {
   local lab sleep_bin shell_pid out
+  case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*)
+      # Not expressible on Windows: the symlinked `pi` is sleep.exe to the
+      # native process table, and sh's exec of it leaves the pane shell's
+      # native process tree.
+      pass "herdr stale registration: agent-named descendant case skipped on Windows"
+      return
+      ;;
+  esac
   sleep_bin=$(command -v sleep) || fail "sleep not found"
   # The executable path the process table reports contains a space (the macOS
   # `/Library/Application Support/...` shape), so a field-split read of the
@@ -778,7 +806,7 @@ test_registered_agent_with_an_empty_foreground_over_a_real_shell_settles_via_des
   "$sleep_bin" 300 &
   shell_pid=$!
   out=$(stale_registration_case empty-foreground idle \
-    "$(printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":[]}}}' "$shell_pid" "$shell_pid")")
+    "$(printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":[]}}}' "$(pane_pid "$shell_pid")" "$(pane_pid "$shell_pid")")")
   kill "$shell_pid" 2>/dev/null || true
   [ "$out" = "stale-agent dead refused" ] \
     || fail "an empty foreground list over a real childless shell must settle to stale-agent via the descendant walk, not unreadable, got '$out'"
@@ -1742,7 +1770,8 @@ test_presentation_floor_warning_marker_is_atomic_and_symlink_safe() {
   mkdir -p "$state"
   marker="$state/.herdr-presentation-floor-version-0-7-5--protocol-17-"
   outside="$dir/symlink-target"
-  ln -s "$outside" "$marker"
+  ln -s "$outside" "$marker" \
+    || fail "could not create the dangling marker symlink fixture"
   symlink_warning=$(presentation_enabled_verdict "$config" "$fb" "$state" 2>&1 >/dev/null)
   [ -z "$symlink_warning" ] \
     || fail "an existing dangling marker symlink must be treated as already claimed: $symlink_warning"

@@ -72,7 +72,8 @@ EOF
 # Leases go to the case's own folder, never the machine's real C:\Agents\locks.
 run_spawn() {  # <args>...
   : > "$LAUNCHLOG"
-  FM_WORKBENCH_LEASE_DIR="$CASE_DIR/locks" FM_FAKE_LAUNCH_LOG="$LAUNCHLOG" fm_test_run_spawn "$HOME_DIR" "$CLONE" "$FAKEBIN" "$@"
+  : > "$CASE_DIR/pane.log"
+  FM_WORKBENCH_LEASE_DIR="$CASE_DIR/locks" FM_FAKE_LAUNCH_LOG="$LAUNCHLOG" FM_FAKE_PANE_LOG="$CASE_DIR/pane.log" fm_test_run_spawn "$HOME_DIR" "$CLONE" "$FAKEBIN" "$@"
 }
 
 test_a_scout_launches_in_the_leased_clone_and_leaves_it_untouched() {
@@ -114,6 +115,15 @@ test_a_scout_launches_in_the_leased_clone_and_leaves_it_untouched() {
   assert_contains "$launch" "--settings '" "the launch passes no --settings"
   assert_contains "$launch" "$id.claude-settings.json'" "the launch does not pass the task's hooks file"
   assert_not_contains "$launch" '{"feedbackDrafts"' "the inline settings JSON was not replaced by the file"
+  case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*)
+      # An env wrapper would drop the agent out of the pane's native process
+      # tree, so the pane shell unsets the variables instead.
+      assert_not_contains "$launch" "env -u CURSOR_AGENT" "the Windows workbench launch still goes through env"
+      assert_line "unset CURSOR_AGENT CURSOR_INVOKED_AS GEMINI_CLI" "$CASE_DIR/pane.log"         "the Windows workbench pane shell did not unset the harness markers before launch"
+      ;;
+    *) assert_contains "$launch" "env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI" "the launch lost its env wrapper" ;;
+  esac
 
   # Claude on Windows keys a project as C:/dir/sub; elsewhere the plain path.
   local trust_key
