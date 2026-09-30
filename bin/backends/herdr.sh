@@ -2181,6 +2181,7 @@ fm_backend_herdr_pane_process_state_sample() {  # <session> <pane_id>
   # absence, read from the real process table, is proof of an agent-free pane.
   [ "$others" -eq 0 ] || { printf 'other'; return 0; }
   ps_bin=${FM_HERDR_PS_BIN:-ps}
+  [ -n "${FM_HERDR_PS_BIN:-}" ] || ! fm_backend_herdr_is_windows || ps_bin=fm_backend_herdr_windows_ps
   command -v "$ps_bin" >/dev/null 2>&1 || { printf 'unreadable'; return 0; }
   rows=$(LC_ALL=C "$ps_bin" -axo pid=,ppid=,comm= 2>/dev/null) || { printf 'unreadable'; return 0; }
   printf '%s\n' "$rows" | awk -v shell="$shell_pid" '$1 == shell { found = 1 } END { exit(found ? 0 : 1) }' \
@@ -3092,6 +3093,38 @@ fm_backend_herdr_is_windows() {
     MINGW*|MSYS*|CYGWIN*) return 0 ;;
   esac
   return 1
+}
+
+# jq for Windows writes CRLF. Git Bash strips only a trailing CR from a command
+# substitution, so a multi-line result (a list of ids) keeps a CR on every line
+# but the last. Binary mode keeps LF output for every jq call in this backend.
+if fm_backend_herdr_is_windows; then
+  jq() { command jq -b "$@"; }
+fi
+
+# fm_backend_herdr_windows_ps: the two `ps` forms the pane descendant walk in
+# fm_backend_herdr_pane_process_state_sample uses, answered from Win32_Process:
+# Git Bash's ps has no -o, and herdr's shell_pid is a native Windows pid, which
+# MSYS ps does not list anyway. `-axo pid=,ppid=,comm=` prints every process;
+# `-p <pid> -o args=` prints one command line. Any other form fails, so a
+# caller wanting more than this stops as it did before.
+fm_backend_herdr_windows_ps() {
+  local script
+  # Single quotes only: MSYS escapes embedded double quotes when it builds the
+  # native command line, and Windows PowerShell does not parse that back.
+  case "$*" in
+    '-axo pid=,ppid=,comm=')
+      script='$ErrorActionPreference = '\''Stop'\''; foreach ($o in Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,Name) { [string]$o.ProcessId + '\'' '\'' + [string]$o.ParentProcessId + '\'' '\'' + $o.Name }'
+      ;;
+    '-p '*' -o args=')
+      set -- "${2:-}"
+      case "$1" in '' | *[!0-9]*) return 1 ;; esac
+      script='$ErrorActionPreference = '\''Stop'\''; $o = Get-CimInstance Win32_Process -Filter '\''ProcessId='"$1"\'' -Property CommandLine; if (-not $o) { exit 1 }; $o.CommandLine -replace '\''[\t\r\n]'\'', '\'' '\'''
+      ;;
+    *) return 1 ;;
+  esac
+  powershell.exe -NoProfile -NonInteractive -Command "$script" 2>/dev/null | tr -d '\r'
+  [ "${PIPESTATUS[0]}" -eq 0 ]
 }
 
 # fm_backend_herdr_windows_shell_prepare: herdr's Windows build opens every

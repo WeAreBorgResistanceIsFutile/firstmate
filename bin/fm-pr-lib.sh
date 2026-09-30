@@ -276,8 +276,13 @@ fm_pr_json_draft_state() {  # <pull-request-json>
   ' 2>/dev/null || true
 }
 
+# Resolved once at source time, as bin/fm-wake-lib.sh does: the file helpers
+# below run several times per artifact validation, and a uname fork per call
+# is a measurable cost on Git Bash/MSYS, which pays the highest fork price.
+_FM_PR_UNAME=$(uname -s 2>/dev/null || echo unknown)
+
 fm_pr_file_mode() {
-  if [ "$(uname)" = Darwin ]; then
+  if [ "$_FM_PR_UNAME" = Darwin ]; then
     /usr/bin/stat -f %Lp "$1" 2>/dev/null
   else
     stat -c %a "$1" 2>/dev/null
@@ -285,7 +290,7 @@ fm_pr_file_mode() {
 }
 
 fm_pr_file_device() {
-  if [ "$(uname)" = Darwin ]; then
+  if [ "$_FM_PR_UNAME" = Darwin ]; then
     /usr/bin/stat -f %d "$1" 2>/dev/null
   else
     stat -c %d "$1" 2>/dev/null
@@ -293,7 +298,7 @@ fm_pr_file_device() {
 }
 
 fm_pr_file_link_count() {
-  if [ "$(uname)" = Darwin ]; then
+  if [ "$_FM_PR_UNAME" = Darwin ]; then
     /usr/bin/stat -f %l "$1" 2>/dev/null
   else
     stat -c %h "$1" 2>/dev/null
@@ -301,7 +306,7 @@ fm_pr_file_link_count() {
 }
 
 fm_pr_file_inode() {
-  if [ "$(uname)" = Darwin ]; then
+  if [ "$_FM_PR_UNAME" = Darwin ]; then
     /usr/bin/stat -f %i "$1" 2>/dev/null
   else
     stat -c %i "$1" 2>/dev/null
@@ -336,12 +341,26 @@ fm_pr_sha256() {
 # remount that renumbers the volume. It refuses a file that is not on that
 # directory's own filesystem, such as one bind-mounted over the name, which is
 # also what keeps same-directory rename publication atomic.
+# fm_pr_file_mode_matches <path> <mode>: true when the file carries <mode>.
+# Git Bash, MSYS and Cygwin synthesize POSIX modes on NTFS (chmod 700 still
+# reads back 755), so there the comparison is skipped; the regular-file,
+# device and link-count checks that callers pair with it still apply.
+fm_pr_file_mode_matches() {
+  case "$_FM_PR_UNAME" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac
+  [ "$(fm_pr_file_mode "$1")" = "$2" ]
+}
+
 fm_pr_private_file_valid() {
   local path=$1 mode=$2 device=$3
   [ -f "$path" ] && [ ! -L "$path" ] || return 1
-  [ "$(fm_pr_file_mode "$path")" = "$mode" ] || return 1
-  [ "$(fm_pr_file_device "$path")" = "$device" ] || return 1
-  [ "$(fm_pr_file_link_count "$path")" = 1 ]
+  fm_pr_file_mode_matches "$path" "$mode" || return 1
+  # Device and link count from one stat call: this runs for every artifact a
+  # poll validates, and each fork is costly on Git Bash/MSYS.
+  if [ "$_FM_PR_UNAME" = Darwin ]; then
+    [ "$(/usr/bin/stat -f '%d %l' "$path" 2>/dev/null)" = "$device 1" ]
+  else
+    [ "$(stat -c '%d %h' "$path" 2>/dev/null)" = "$device 1" ]
+  fi
 }
 
 fm_pr_regular_destination_or_absent() {

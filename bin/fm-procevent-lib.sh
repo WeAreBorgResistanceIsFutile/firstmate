@@ -218,6 +218,11 @@ fm_procevent_launch_floor_seconds() {
 # reconcile once per supervision cycle, and every launch of a cycle shares ONE
 # window rather than taking a window each.
 FM_PROCEVENT_LAUNCH_CONFIRM_DEFAULT_SECONDS=3
+# Git Bash, MSYS and Cygwin pay tens of milliseconds per fork, so a runner there
+# needs roughly 10s to claim; 3s would report every healthy launch as failed.
+case "$(uname -s 2>/dev/null)" in
+  MINGW* | MSYS* | CYGWIN*) FM_PROCEVENT_LAUNCH_CONFIRM_DEFAULT_SECONDS=30 ;;
+esac
 FM_PROCEVENT_LAUNCH_CONFIRM_MIN_SECONDS=1
 FM_PROCEVENT_LAUNCH_CONFIRM_MAX_SECONDS=600
 
@@ -711,6 +716,21 @@ fm_procevent_claim_capture_reservation_reclaim_locked() {
 fm_procevent_group_alive() {
   case "$1" in ''|*[!0-9]*) return 1 ;; esac
   kill -0 -"$1" 2>/dev/null
+}
+
+# fm_procevent_pgid <pid>
+# Print the process group id of <pid>. Git Bash, MSYS and Cygwin ps has no -o,
+# so there the value comes from /proc/<pid>/pgid instead.
+fm_procevent_pgid() {
+  local pgid
+  case "$1" in ''|*[!0-9]*) return 1 ;; esac
+  case "$(uname -s 2>/dev/null)" in
+    MINGW* | MSYS* | CYGWIN*) pgid=$(cat "/proc/$1/pgid" 2>/dev/null) || return 1 ;;
+    *) pgid=$(ps -o pgid= -p "$1" 2>/dev/null) || return 1 ;;
+  esac
+  pgid=$(printf '%s' "$pgid" | tr -d '[:space:]')
+  [ -n "$pgid" ] || return 1
+  printf '%s\n' "$pgid"
 }
 
 # fm_procevent_pid_state <pid> <identity>

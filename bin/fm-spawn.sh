@@ -5281,9 +5281,21 @@ case "$LAUNCH" in
   LAUNCH=${LAUNCH//__CLAUDEADDDIRS__/$CLAUDE_ADD_DIRS}
   ;;
 esac
+SPAWN_PANE_UNSET=
 case "$HARNESS" in
 claude | codex | opencode | pi | pi-signed | grok | kimi | gemini | muse | rovo | agy | devin)
-  LAUNCH="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI $LAUNCH"
+  # Nexon fork: under Git Bash an MSYS program that hands over to another
+  # (bash fork -> exec env.exe) drops its native process, so the harness falls
+  # out of the pane shell's native process tree. Herdr then sees no agent in
+  # the pane - no foreground harness, no registration - and a relaunch waits
+  # on 'dead' until it gives up. In workbench mode on Windows the pane shell
+  # is the task's own, so the same three variables are unset there before the
+  # launch instead of through env.
+  if [ "$WORKBENCH" = 1 ] && case "$(uname -s 2>/dev/null)" in MINGW* | MSYS* | CYGWIN*) true ;; *) false ;; esac; then
+    SPAWN_PANE_UNSET="unset CURSOR_AGENT CURSOR_INVOKED_AS GEMINI_CLI"
+  else
+    LAUNCH="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI $LAUNCH"
+  fi
   ;;
 esac
 # Crewmate panes are created by a long-lived tmux/herdr daemon that does not
@@ -5419,6 +5431,7 @@ fi
 if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   spawn_send_text_line "$T" "export FM_TASK_ID=$ID"
 fi
+[ -z "$SPAWN_PANE_UNSET" ] || spawn_send_text_line "$T" "$SPAWN_PANE_UNSET"
 # Send through the exact channel that already ships GOTMPDIR, so every backend
 # and harness - ship, scout, and secondmate - gets it before launch. Skipped
 # entirely when trace context is off.
