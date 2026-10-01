@@ -60,7 +60,7 @@ test_wait_deadline_reaps_a_stopped_child() {
   # A stopped TERM-resistant child cannot finish graceful cleanup. The helper waited
   # forever after its nominal deadline. An outer process-group deadline keeps
   # this regression finite even if that bug returns.
-  python3 - "$ROOT/tests/wake-helpers.sh" <<'PY' || fail "bounded child cleanup regression"
+  FM_TEST_POLL_SCALE=$FM_TEST_POLL_SCALE python3 - "$ROOT/tests/wake-helpers.sh" <<'PY' || fail "bounded child cleanup regression"
 import os
 import signal
 import subprocess
@@ -88,7 +88,8 @@ env = dict(os.environ, FM_TEST_SKIP_ORPHAN_REAP="1")
 p = subprocess.Popen([os.environ.get("BASH", "bash"), "-c", script, "_", sys.argv[1]], env=env,
                      start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 try:
-    out, err = p.communicate(timeout=15)
+    # wait_for_exit scales its polls by FM_TEST_POLL_SCALE; so does this deadline.
+    out, err = p.communicate(timeout=15 * int(os.environ.get("FM_TEST_POLL_SCALE", "1")))
 except subprocess.TimeoutExpired:
     if hasattr(os, "killpg"):
         os.killpg(p.pid, signal.SIGKILL)
