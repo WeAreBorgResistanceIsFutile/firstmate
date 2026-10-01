@@ -326,8 +326,8 @@ test_meta_lock_contention_fails_bounded() {
     . "$1"
     fm_lock_acquire_wait "$2"
     touch "$3"
-    sleep 30
-  ' _ "$ROOT/bin/fm-wake-lib.sh" "$lock" "$marker" &
+    exec sleep "$4"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$lock" "$marker" "$((30 * FM_TEST_POLL_SCALE))" &
   holder=$!
   i=0
   while [ ! -e "$marker" ] && [ "$i" -lt 100 ]; do

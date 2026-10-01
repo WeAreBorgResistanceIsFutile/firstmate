@@ -280,6 +280,10 @@ EOF
 
 test_a_report_publication_failure_is_failed_and_still_wakes() {
   local rec home root log claimant output state
+  if ! fm_test_readonly_dirs_supported; then
+    skip "fm-startup-network: ${FUNCNAME[0]} needs a read-only directory, which this host cannot make"
+    return 0
+  fi
   rec=$(new_world report-publication-failure)
   IFS='|' read -r home root log <<EOF
 $rec

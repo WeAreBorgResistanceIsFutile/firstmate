@@ -324,6 +324,17 @@ Known and not fixed:
 - **Isolated-PATH test cases** outside `fm-turnend-guard` (19 sites in 9 files)
   still pass only a fakebin PATH; they need `fm_test_isolated_path` when those
   suites are run.
+- **Extension host** (`bin/fm-extension.mjs`) spawns `.sh` adapters directly
+  (`EFTYPE` on Windows) and bounds a stalled adapter by POSIX process-group
+  kill, which Windows lacks. Unused here, so its suite is ignored; a port needs
+  bash-launched adapters and a `taskkill /T` tree kill.
+- **`/calm` doorbell** verdicts read the record by its Git Bash `/tmp/...`
+  path, which Node cannot open, so those lines would show raw. `/calm` is
+  unused here and its suites are ignored.
+- **Clone-refresh allowance** at session start is max(20, 5 + 3 × clones)
+  seconds, tuned for Linux fetch speed. A timeout only skips the refresh.
+  Measure it once Phase 2 clones are registered; `FM_FLEET_SYNC_BOOTSTRAP_TIMEOUT`
+  overrides it.
 
 **Exit criteria:** the lock holds; the task completes and is cleaned up; M's
 clone, `workbench.cmd` and `settings.local.json` are byte-identical before and

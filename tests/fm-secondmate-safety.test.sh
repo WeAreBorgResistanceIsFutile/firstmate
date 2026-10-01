@@ -822,6 +822,10 @@ test_home_seed_refuses_projectless_home_with_non_directory_projects() {
 
 test_home_seed_refuses_projectless_home_with_uninspectable_registry() {
   local home sub err registry_before
+  if ! fm_test_unreadable_files_supported; then
+    skip "fm-secondmate-safety: ${FUNCNAME[0]} needs an unreadable file, which this host cannot make"
+    return 0
+  fi
   home="$TMP_ROOT/no-projects-uninspectable-registry-home"
   sub="$TMP_ROOT/no-projects-uninspectable-registry-subhome"
   err="$TMP_ROOT/no-projects-uninspectable-registry.err"

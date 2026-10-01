@@ -1481,9 +1481,9 @@ test_deferred_signal_verification_outlives_an_unresponsive_tasks_axi() {
   # (FM_TASKS_AXI_TIMEOUT=3), print the attempted wording naming the timeout,
   # and exit - the outer 30s bound (fm_run_timed, portable to a host with no
   # timeout binary) only turns a regression back into the lock-held-forever
-  # hang it exists to catch.
+  # hang it exists to catch. That bound scales with FM_TEST_POLL_SCALE.
   mkdir -p "$case_dir/user-home"
-  out=$(fm_run_timed 30 env FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$(home_of "$case_dir")" \
+  out=$(fm_run_timed $((30 * FM_TEST_POLL_SCALE)) env FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$(home_of "$case_dir")" \
     HOME="$case_dir/user-home" FM_SPAWN_NO_GUARD=1 \
     FM_FAKE_PANE_PATH="$case_dir/wt" TMUX="fake,1,0" CLAUDE_CONFIG_DIR='' \
     FM_TASKS_AXI_TIMEOUT=3 PATH="$case_dir/fakebin:$PATH" \
