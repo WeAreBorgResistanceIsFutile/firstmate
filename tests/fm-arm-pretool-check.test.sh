@@ -388,7 +388,7 @@ test_failopen_missing_jq() {
     real=$(command -v "$tool")
     ln -sf "$real" "$fakebin/$tool"
   done
-  PATH="$fakebin" bash -c "printf '%s' '{\"tool_input\":{\"command\":\"bin/fm-watch-arm.sh &\"}}' | '$CHECK'" >/dev/null 2>&1
+  PATH="$(fm_test_isolated_path "$fakebin")" bash -c "printf '%s' '{\"tool_input\":{\"command\":\"bin/fm-watch-arm.sh &\"}}' | '$CHECK'" >/dev/null 2>&1
   rc=$?
   [ "$rc" -eq 0 ] || fail "missing jq must fail open (exit 0) rather than crash-deny, got exit $rc"
   pass "fail-open: missing jq on stdin path"
@@ -403,7 +403,7 @@ test_failopen_missing_node() {
     real=$(command -v "$tool")
     ln -sf "$real" "$fakebin/$tool"
   done
-  PATH="$fakebin" "$CHECK" --command 'bin/fm-watch-arm.sh &' >/dev/null 2>&1
+  PATH="$(fm_test_isolated_path "$fakebin")" "$CHECK" --command 'bin/fm-watch-arm.sh &' >/dev/null 2>&1
   rc=$?
   [ "$rc" -eq 0 ] || fail "missing node must fail open (exit 0), got exit $rc"
   pass "fail-open: missing classifier runtime"

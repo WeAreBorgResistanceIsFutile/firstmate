@@ -266,6 +266,7 @@ test_missing_jq_stdin_transport_fails_open() {
   mkdir -p "$fakebin"
   ln -sf "$bash_bin" "$fakebin/bash"
   ln -sf "$cat_bin" "$fakebin/cat"
+  fm_test_msys_dlls "$fakebin"
   : > "$OUT"; : > "$ERR"
   printf '%s' '{"tool_name":"Agent"}' \
     | env PATH="$fakebin" FM_ROOT_OVERRIDE="$PRIMARY" FM_HOME="$PRIMARY" FM_STATE_OVERRIDE="$STATE" \

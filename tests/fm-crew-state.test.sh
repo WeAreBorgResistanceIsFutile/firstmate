@@ -4172,6 +4172,7 @@ make_no_python_toolbin() {
     real=$(command -v "$tool") || fail "missing fixture tool: $tool"
     ln -s "$real" "$tb/$tool"
   done
+  fm_test_msys_dlls "$tb"
   PATH="$tb" bash -c '! command -v python3 && ! command -v sqlite3' || fail 'fixture exposes optional inventory readers'
   printf '%s\n' "$tb"
 }

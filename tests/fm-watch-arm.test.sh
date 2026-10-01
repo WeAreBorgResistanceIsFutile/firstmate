@@ -1155,7 +1155,7 @@ test_arm_refuses_an_unusable_launch_confirm_window() {
 
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
     FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    FM_ARM_CONFIRM_TIMEOUT=5 FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS=5s \
+    FM_ARM_CONFIRM_TIMEOUT=$((5 * FM_TEST_POLL_SCALE)) FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS=5s \
     "$WATCH_ARM" > "$armout" 2>&1 &
   ARM_PID=$!
   wait_for_exit "$ARM_PID" 200
@@ -1221,13 +1221,15 @@ test_arm_refuses_a_disposable_validation_checkout() {
 # so the watcher's own exit reason, which it logs to stderr, is readable there.
 WATCH_PID=
 start_owned_watcher() {  # <home> <state> <fakebin> <arm-out>
-  local home=$1 state=$2 fakebin=$3 armout=$4 i
+  local home=$1 state=$2 fakebin=$3 armout=$4 i confirm=2
+  # A first watcher pass costs about a minute of process starts on Git Bash.
+  [ "$FM_TEST_POLL_SCALE" -gt 1 ] && confirm=120
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
     FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    FM_ARM_CONFIRM_TIMEOUT=2 "$WATCH_ARM" > "$armout" 2>&1 &
+    FM_ARM_CONFIRM_TIMEOUT="$confirm" "$WATCH_ARM" > "$armout" 2>&1 &
   ARM_PID=$!
   i=0
-  while [ "$i" -lt 100 ]; do
+  while [ "$i" -lt $(((confirm + 8) * 10)) ]; do
     grep -q '^watcher: started pid=' "$armout" 2>/dev/null && break
     is_live_non_zombie "$ARM_PID" || break
     sleep 0.1

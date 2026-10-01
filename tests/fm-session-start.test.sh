@@ -879,6 +879,10 @@ EOF
 
 test_lock_write_failure_read_only_path() {
   local rec root home fakebin out status
+  if ! fm_test_readonly_dirs_supported; then
+    skip "session start lock publication failure: this host cannot make a directory unwritable"
+    return 0
+  fi
   rec=$(new_world lock-write-failure)
   IFS='|' read -r root home fakebin <<EOF
 $rec

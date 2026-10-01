@@ -2582,8 +2582,8 @@ test_live_presentation_holder_is_deadlined_without_weakening_ack() {
     . "$1"
     fm_lock_acquire_wait "$2"
     printf "ready\n" > "$3"
-    exec sleep 30
-  ' _ "$ROOT/bin/fm-wake-lib.sh" "$state/.wake-queue.lock" "$dir/queue.ready" &
+    exec sleep "$4"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$state/.wake-queue.lock" "$dir/queue.ready" "$((30 * FM_TEST_POLL_SCALE))" &
   queue_holder=$!
   i=0
   while [ "$i" -lt 100 ] && [ ! -s "$dir/queue.ready" ]; do
@@ -2598,7 +2598,9 @@ test_live_presentation_holder_is_deadlined_without_weakening_ack() {
     "$DRAIN" > "$queue_out" 2> "$queue_err" \
     || { kill "$queue_holder" 2>/dev/null || true; fail "bounded queue presentation drain failed"; }
   elapsed=$(( $(date +%s) - start ))
-  [ "$elapsed" -le 4 ] \
+  # Scaled: a whole drain costs a minute of process starts on Git Bash, so on
+  # that host the holders outlive it and the bound stays well below their hold.
+  [ "$elapsed" -le $((4 * FM_TEST_POLL_SCALE * FM_TEST_POLL_SCALE)) ] \
     || { kill "$queue_holder" 2>/dev/null || true; fail "queue lock delayed the drain for ${elapsed}s"; }
   advisory_count=$(grep -Fc \
     "WAKE DRAIN SKIPPED: queue lock remains held by live pid $queue_holder" \
@@ -2622,8 +2624,8 @@ test_live_presentation_holder_is_deadlined_without_weakening_ack() {
     . "$1"
     fm_lock_acquire_wait "$2"
     printf "ready\n" > "$3"
-    exec sleep 30
-  ' _ "$ROOT/bin/fm-wake-lib.sh" "$state/.status-presentation-lock" "$dir/presentation.ready" &
+    exec sleep "$4"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$state/.status-presentation-lock" "$dir/presentation.ready" "$((30 * FM_TEST_POLL_SCALE))" &
   presentation_holder=$!
   i=0
   while [ "$i" -lt 100 ] && [ ! -s "$dir/presentation.ready" ]; do
@@ -2638,7 +2640,7 @@ test_live_presentation_holder_is_deadlined_without_weakening_ack() {
     "$DRAIN" > "$first_out" 2> "$first_err" \
     || { kill "$presentation_holder" 2>/dev/null || true; fail "bounded presentation drain failed"; }
   elapsed=$(( $(date +%s) - start ))
-  [ "$elapsed" -le 4 ] \
+  [ "$elapsed" -le $((4 * FM_TEST_POLL_SCALE * FM_TEST_POLL_SCALE)) ] \
     || { kill "$presentation_holder" 2>/dev/null || true; fail "presentation lock delayed the drain for ${elapsed}s"; }
   advisory_count=$(grep -Fc \
     "STATUS PRESENTATION SKIPPED: lock remains held by live pid $presentation_holder" \
@@ -2667,8 +2669,8 @@ test_live_presentation_holder_is_deadlined_without_weakening_ack() {
     . "$1"
     fm_lock_acquire_wait "$2"
     printf "ready\n" > "$3"
-    exec sleep 30
-  ' _ "$ROOT/bin/fm-wake-lib.sh" "$state/.wake-queue.lock" "$dir/ack.ready" &
+    exec sleep "$4"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$state/.wake-queue.lock" "$dir/ack.ready" "$((30 * FM_TEST_POLL_SCALE))" &
   ack_holder=$!
   i=0
   while [ "$i" -lt 100 ] && [ ! -s "$dir/ack.ready" ]; do

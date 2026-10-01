@@ -243,7 +243,7 @@ interrupt_spawn_during_start() {  # <case-dir> <before|after>
 #!/usr/bin/env bash
 if [ "\${1:-}" = start ] && [ ! -f "$case_dir/start-interrupted" ]; then
   : > "$case_dir/start-interrupted"
-  spawn_pid=\$(ps -o ppid= -p "\$PPID" | tr -d ' ')
+  spawn_pid=\$( { ps -o ppid= -p "\$PPID" 2>/dev/null || cat "/proc/\$PPID/ppid"; } | tr -d ' ')
   case "\$spawn_pid" in ''|*[!0-9]*) exit 1 ;; esac
   if [ "$timing" = before ]; then
     kill -TERM "\$spawn_pid"
@@ -274,7 +274,7 @@ lie_start_then_interrupt() {  # <case-dir> <repair: works|fails>
 if [ "\${1:-}" = start ]; then
   if [ ! -f "$case_dir/start-interrupted" ]; then
     : > "$case_dir/start-interrupted"
-    spawn_pid=\$(ps -o ppid= -p "\$PPID" | tr -d ' ')
+    spawn_pid=\$( { ps -o ppid= -p "\$PPID" 2>/dev/null || cat "/proc/\$PPID/ppid"; } | tr -d ' ')
     case "\$spawn_pid" in ''|*[!0-9]*) exit 1 ;; esac
     kill -TERM "\$spawn_pid"
     exit 0
@@ -302,7 +302,7 @@ hang_start_after_first() {  # <case-dir>
 if [ "\${1:-}" = start ]; then
   if [ ! -f "$case_dir/start-interrupted" ]; then
     : > "$case_dir/start-interrupted"
-    spawn_pid=\$(ps -o ppid= -p "\$PPID" | tr -d ' ')
+    spawn_pid=\$( { ps -o ppid= -p "\$PPID" 2>/dev/null || cat "/proc/\$PPID/ppid"; } | tr -d ' ')
     case "\$spawn_pid" in ''|*[!0-9]*) exit 1 ;; esac
     kill -TERM "\$spawn_pid"
     exit 0
@@ -473,7 +473,7 @@ interrupt_teardown_during_treehouse_return() {  # <case-dir>
 #!/usr/bin/env bash
 if [ "\${1:-}" = return ] && [ ! -f "$case_dir/teardown-interrupted" ]; then
   : > "$case_dir/teardown-interrupted"
-  teardown_pid=\$(ps -o ppid= -p "\$PPID" | tr -d ' ')
+  teardown_pid=\$( { ps -o ppid= -p "\$PPID" 2>/dev/null || cat "/proc/\$PPID/ppid"; } | tr -d ' ')
   case "\$teardown_pid" in ''|*[!0-9]*) exit 1 ;; esac
   kill -TERM "\$teardown_pid"
   kill -TERM "\$\$"
@@ -500,7 +500,7 @@ case "\${1:-}" in
   capture-pane)
     if [ ! -f "$case_dir/kimi-interrupted" ]; then
       : > "$case_dir/kimi-interrupted"
-      spawn_pid=\$(ps -o ppid= -p "\$PPID" | tr -d ' ')
+      spawn_pid=\$( { ps -o ppid= -p "\$PPID" 2>/dev/null || cat "/proc/\$PPID/ppid"; } | tr -d ' ')
       case "\$spawn_pid" in ''|*[!0-9]*) exit 1 ;; esac
       kill -TERM "\$spawn_pid"
     fi

@@ -81,10 +81,10 @@ if [ "$pid" = "${FM_FAKE_HARNESS_PID:-}" ]; then
   case "$*" in
     *comm=*) printf '/usr/local/bin/claude\n' ;;
     *args=*) printf 'claude\n' ;;
-    *ppid=*) /bin/ps -o ppid= -p "$pid" ;;
+    *ppid=*) "${FM_TEST_PS:-/bin/ps}" -o ppid= -p "$pid" ;;
   esac
 else
-  /bin/ps "$@"
+  "${FM_TEST_PS:-/bin/ps}" "$@"
 fi
 SH
   chmod +x "$root/bin/ps"
@@ -96,7 +96,7 @@ SH
 # waits for its record rather than assuming instant publication.
 await_worker_record() {  # <home>
   local home=$1 waited=0
-  while [ ! -s "$home/state/.startup-network.status" ] && [ "$waited" -lt 100 ]; do
+  while [ ! -s "$home/state/.startup-network.status" ] && [ "$waited" -lt $((100 * FM_TEST_POLL_SCALE)) ]; do
     sleep 0.1
     waited=$((waited + 1))
   done
@@ -157,7 +157,7 @@ hold_publish_lock() {  # <home>
 # await_pid_exit <pid> <tenths>: true when the process exits inside the bound.
 await_pid_exit() {  # <pid> <tenths>
   local waited=0
-  while kill -0 "$1" 2>/dev/null && [ "$waited" -lt "$2" ]; do
+  while kill -0 "$1" 2>/dev/null && [ "$waited" -lt $(($2 * FM_TEST_POLL_SCALE)) ]; do
     sleep 0.1
     waited=$((waited + 1))
   done
@@ -181,11 +181,13 @@ EOF
 
   started=$(date +%s)
   # Command substitution reads to EOF, exactly like a hook harvesting hook output.
-  FM_FAKE_BOOTSTRAP_LOG="$log" FM_FAKE_BOOTSTRAP_SLEEP=10 \
+  # Scaled: on Git Bash the stage's own process starts can take seconds.
+  FM_FAKE_BOOTSTRAP_LOG="$log" FM_FAKE_BOOTSTRAP_SLEEP=$((10 * FM_TEST_POLL_SCALE)) \
     run_stage "$home" "$root" start --locked 1 --harvest-pid $$ >/dev/null
   elapsed=$(( $(date +%s) - started ))
 
-  [ "$elapsed" -lt 4 ] || fail "start blocked for ${elapsed}s behind a 10s worker"
+  [ "$elapsed" -lt $((4 * FM_TEST_POLL_SCALE)) ] \
+    || fail "start blocked for ${elapsed}s behind a $((10 * FM_TEST_POLL_SCALE))s worker"
   await_worker_record "$home"
   pending=$(run_stage "$home" "$root" report)
   [ "$(printf '%s\n' "$pending" | head -1)" = "IN PROGRESS - the deferred network checks have not finished yet." ] \
@@ -194,7 +196,7 @@ EOF
     "the pending guidance still promised a wake for clean success"
   assert_contains "$pending" "$root/bin/fm-startup-network.sh report" \
     "the pending guidance omitted the durable on-demand report path"
-  run_stage "$home" "$root" wait 30 >/dev/null || fail "the worker never published"
+  run_stage "$home" "$root" wait $((30 * FM_TEST_POLL_SCALE)) >/dev/null || fail "the worker never published"
   assert_grep 'network=only' "$log" "the worker did not run bootstrap's network-only phase"
   pass "fm-startup-network: start returns immediately and never holds the caller's stdout open"
 }

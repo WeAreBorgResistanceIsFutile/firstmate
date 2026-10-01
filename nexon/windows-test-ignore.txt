@@ -53,6 +53,7 @@ fm-pi-primary-live-e2e # Pi as firstmate host unused
 fm-pi-primary-types # Pi as firstmate host unused
 fm-pi-watch-extension # Pi as firstmate host unused
 fm-pi-windows-shell-invocation # Pi as firstmate host unused
+fm-watch-recovery-loop # Pi/OpenCode primary watch extension; Pi as firstmate host unused
 fm-codex-continuity-live-e2e # Codex as firstmate host unused
 
 # Remote second mates (SSH transport and remote hosts) - second mates are local only.
@@ -77,3 +78,6 @@ fm-spawn-compact-adviser-disable-remote # remote second mates
 # Other.
 fm-ci-workflow # parses the upstream GitHub Actions YAML with Ruby; covered by upstream Linux CI
 fm-nm-test-contract # parses .no-mistakes.yaml with Ruby; covered by upstream Linux CI
+
+# Codex as the firstmate host: the bounded foreground checkpoint Codex supervision parks in.
+fm-watch-checkpoint # Codex-host watcher checkpoint; claude arms through the Stop hook

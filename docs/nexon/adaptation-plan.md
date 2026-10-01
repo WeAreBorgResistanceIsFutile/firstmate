@@ -62,6 +62,13 @@ record of decisions, risks and open work is `HANDOFF.md` at the repo root.
   `actionlint_<v>_windows_amd64.zip` from the rhysd/actionlint release, check
   its SHA-256 against that release's `checksums.txt` (whose `linux_amd64` line
   must match the installer's pin), and put `actionlint.exe` in `~/bin`.
+- **Install ShellCheck.** `fm-lint` and several suites need the pinned
+  ShellCheck (`bin/fm-lint.sh --required-version`), and
+  `bin/fm-install-shellcheck.sh` knows only Linux and macOS. Download
+  `shellcheck-v<v>.zip` from the koalaman/shellcheck release, check its SHA-256
+  against that release's asset digest (`gh api
+  repos/koalaman/shellcheck/releases/tags/v<v>`, whose `linux.x86_64.tar.xz`
+  digest must match the installer's pin), and put `shellcheck.exe` in `~/bin`.
 - **Line endings need nothing per host.** `.gitattributes` forces LF on every
   tracked text file, so `core.autocrlf=true` no longer turns templates,
   helpers and test captures CRLF. A clone made before that rule landed must
@@ -257,6 +264,13 @@ skips cases needing an unreadable file. Suites run clean on Git Bash:
 blocking arm fixture now waits for the superseding hook instead of a fixed 6 s,
 which a slow host outlasted).
 
+Fixed in the product, 2026-10-01: `fm-mail.sh` poll strips the CR Windows
+Python prints, which had corrupted the mailbox generation and so every mail
+wake key; `fm_lock_acquire_wait` returns failure once the lock's parent
+directory is gone instead of retrying forever - a watcher whose state
+directory was deleted mid-pass hung there for good (upstream has the same
+race, but a Linux pass is too short to hit it).
+
 Scope: only this fork's Windows setup is supported - the herdr backend, the
 claude, codex and pi harnesses, and local second mates - not everything
 firstmate supports on Linux and macOS. Upstream files stay as close to upstream
@@ -273,6 +287,17 @@ Known and not fixed:
   cycle close to a minute, the herdr suite 26 minutes. Nothing breaks, but PR
   polling on Windows needs a fork-lean validation path before Phase 3 relies
   on it. Test time budgets are raised on Windows, not removed.
+- **Session start is close to its bound.** On 2026-10-01 firstmate's own
+  session start truncated at 120 s under test load and took 5 minutes on an
+  idle machine (network checks alone 98 s, off the startup path). The
+  turn-end guard's 15 s fresh-epoch and 800 ms sync wait may be too tight on
+  Windows as well.
+- **Ownership checks are vacuous.** Git Bash reports every file as owned by
+  the current user, so `-O` checks (e.g. `fm-claude-trust`) always pass.
+- **Path aliases defeat the lock.** A lock taken through
+  `/c/Users/<u>/AppData/Local/Temp/...` writes a `/tmp/...` owner link, so
+  its read-back fails and the acquire never succeeds; firstmate's own paths
+  have no such alias, but a home under the temp directory would.
 - **jq for Windows writes CRLF.** Git Bash drops only a trailing CR, so every
   line but the last of a multi-line `jq -r` result keeps one (a PR head commit
   then fails validation). About 60 `bin/` scripts read jq output; only the herdr

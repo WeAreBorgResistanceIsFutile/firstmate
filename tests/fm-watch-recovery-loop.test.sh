@@ -184,7 +184,7 @@ test_handling_successor_does_not_go_blind() {
     FM_WATCH_HANDLING_SUCCESSOR=1 "$WATCH" > "$out" 2>&1 &
   child=$!
   now=0
-  while [ "$now" -lt 40 ]; do
+  while [ "$now" -lt $((40 * FM_TEST_POLL_SCALE)) ]; do
     [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$child" ] && break
     sleep 0.1
     now=$((now + 1))
@@ -195,7 +195,7 @@ test_handling_successor_does_not_go_blind() {
   printf 'done: crew finished its task\n' >> "$state/crew.status"
   event_start=$(date +%s)
   now=0
-  while [ "$now" -lt 20 ]; do
+  while [ "$now" -lt $((20 * FM_TEST_POLL_SCALE)) ]; do
     if grep -q '^signal:' "$out" 2>/dev/null; then
       break
     fi

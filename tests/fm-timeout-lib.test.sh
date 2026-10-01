@@ -21,6 +21,7 @@ mkdir -p "$PERL_ONLY"
 for tool in perl bash sleep; do
   ln -s "$(command -v "$tool")" "$PERL_ONLY/$tool"
 done
+fm_test_msys_dlls "$PERL_ONLY"
 
 # exec_timed <path> <seconds> <grace> <command...>: source the library under
 # the ordinary PATH, then run the bounded call under <path> as the last command
@@ -239,6 +240,7 @@ test_perl_is_preferred_over_timeout() {
   for tool in perl bash; do
     ln -s "$(command -v "$tool")" "$dir/bin/$tool"
   done
+  fm_test_msys_dlls "$dir/bin"
   printf '#!/bin/sh\necho timeout-used > "%s"\nexit 99\n' "$dir/timeout-used" > "$dir/bin/timeout"
   chmod +x "$dir/bin/timeout"
   out=$(exec_timed "$dir/bin" 5 1 bash -c 'echo ran') || fail "the bounded call failed: $out"
@@ -252,6 +254,7 @@ test_refuses_rather_than_running_unbounded() {
   dir="$TMP_ROOT/unboundable"
   mkdir -p "$dir/bin"
   ln -s "$(command -v bash)" "$dir/bin/bash"
+  fm_test_msys_dlls "$dir/bin"
   out=$(exec_timed "$dir/bin" 5 1 bash -c ': > "$1"' _ "$dir/ran" 2>&1) || rc=$?
   [ "$rc" -eq 127 ] || fail "fm_exec_timed ran with nothing to bound it (rc=$rc)"
   assert_contains "$out" "cannot bound bash within 5s" "the refusal did not say what it could not bound"
@@ -290,6 +293,7 @@ test_gnu_timeout_kills_a_term_ignoring_command_after_the_grace() {
   for tool in timeout bash sleep; do
     ln -s "$(command -v "$tool")" "$fb/$tool"
   done
+  fm_test_msys_dlls "$fb"
   started=$SECONDS
   exec_timed "$fb" 1 2 bash -c 'trap "" TERM; exec sleep 300' || rc=$?
   elapsed=$((SECONDS - started))

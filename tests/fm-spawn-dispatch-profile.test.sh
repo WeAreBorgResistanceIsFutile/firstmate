@@ -1405,6 +1405,12 @@ test_launch_environment_inaccessible_config_refuses() {
     printf '# skip - inaccessible launch configuration requires a non-root user\n'
     return
   fi
+  # chmod 600 on a directory removes search permission only where the host
+  # enforces POSIX directory modes; Git Bash on NTFS does not.
+  if ! fm_test_readonly_dirs_supported; then
+    skip "inaccessible launch configuration (this host does not enforce directory modes)"
+    return
+  fi
   for setting in config ancestor; do
     for presence in present absent; do
       id="env-inaccessible-$setting-$presence"

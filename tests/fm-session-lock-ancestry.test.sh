@@ -673,7 +673,7 @@ SH
 
 wait_for_file() {  # <path> <what>
   local i=0
-  while [ "$i" -lt 400 ] && [ ! -s "$1" ]; do
+  while [ "$i" -lt $((400 * FM_TEST_POLL_SCALE)) ] && [ ! -s "$1" ]; do
     sleep 0.05
     i=$((i + 1))
   done
@@ -686,7 +686,7 @@ fire_phase() {  # <dir> <n> <hook-environment-script>
   mv "$dir/state/fire-$n.tmp" "$dir/state/fire-$n"
   wait_for_file "$dir/state/phase-$n/hook.rc" "phase $n"
   local i=0
-  while [ "$i" -lt 400 ] && [ ! -e "$dir/state/phase-$n/done" ]; do
+  while [ "$i" -lt $((400 * FM_TEST_POLL_SCALE)) ] && [ ! -e "$dir/state/phase-$n/done" ]; do
     sleep 0.05
     i=$((i + 1))
   done
@@ -742,9 +742,11 @@ test_e2e_background_session_keeps_its_lock_across_a_recycled_chain() {
   local dir frontend daemon ptyhost spare i
   dir="$TMP_ROOT/e2e-background-session"
   make_background_session_home "$dir"
+  # The guard runs after the hook here, not beside it as on a real Stop event,
+  # so the auto-arm outcome's freshness window scales with process start cost.
   env -u CLAUDE_CODE_SESSION_ID -u CLAUDE_PID \
     FM_HOME="$dir" FM_FIXTURE_CLAUDE="$NAMED_CLAUDE" FM_POLL=1 FM_HEARTBEAT=999999 \
-    FM_CLAUDE_AUTOARM_SYNC_WAIT_MS=0 \
+    FM_CLAUDE_AUTOARM_SYNC_WAIT_MS=0 FM_CLAUDE_AUTOARM_EPOCH_FRESH=$((15 * FM_TEST_POLL_SCALE)) \
     bash -c '"$0" "$1" &' "$NAMED_CLAUDE" "$dir/frontend.sh"
   wait_for_file "$dir/state/frontend-lock.rc" "the front-end's lock result"
   wait_for_file "$dir/state/spare-pid" "the bg-spare"

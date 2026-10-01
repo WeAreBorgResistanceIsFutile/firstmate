@@ -168,6 +168,37 @@ fm_test_ps() {
   printf '%s\n' "$value"
 }
 
+# fm_test_msys_dlls <fakebin>: on Git Bash, MSYS and Cygwin, link the MSYS
+# runtime DLLs (and Git for Windows' /mingw64 ones, which git.exe needs) into
+# <fakebin>, so a tool linked there loads them from its own folder under a PATH
+# that is <fakebin> alone. Use it instead of
+# fm_test_isolated_path when the case must hide a tool that /usr/bin holds.
+# A no-op on other hosts.
+fm_test_msys_dlls() {
+  local dll
+  case "$(uname -s 2>/dev/null)" in MINGW* | MSYS* | CYGWIN*) ;; *) return 0 ;; esac
+  for dll in /usr/bin/msys-*.dll /usr/bin/cyg*.dll /mingw64/bin/*.dll; do
+    [ -e "$dll" ] || continue
+    [ -e "$1/${dll##*/}" ] || ln -s "$dll" "$1/${dll##*/}"
+  done
+}
+
+# fm_test_link_tool <fakebin> <tool>: put <tool> into <fakebin> as a link to
+# the one on PATH. Git for Windows' git.exe finds its own installation from
+# the path it was started by, so on Git Bash, MSYS and Cygwin a /mingw64 tool
+# becomes a small script that runs the real one instead.
+fm_test_link_tool() {
+  local real
+  real=$(command -v "$2") || return 1
+  case "$(uname -s 2>/dev/null):$real" in
+    MINGW*:/mingw64/* | MSYS*:/mingw64/* | CYGWIN*:/mingw64/*)
+      printf '#!/usr/bin/bash\nexec %q "$@"\n' "$real" > "$1/$2"
+      chmod +x "$1/$2"
+      ;;
+    *) ln -sf "$real" "$1/$2" ;;
+  esac
+}
+
 # fm_test_isolated_path <fakebin>: the PATH for a case that runs with only the
 # tools linked into <fakebin>. An MSYS executable reached through a link
 # outside /usr/bin cannot load msys-2.0.dll, so on Git Bash, MSYS and Cygwin
@@ -229,6 +260,35 @@ fm_test_fake_harness_setup() {
   export FM_PROC_WINDOWS=0
   export PATH="$1:$PATH"
 }
+
+# Every suite sees the process table the way Linux CI does. On Git Bash,
+# MSYS and Cygwin the session-lock ancestry otherwise walks Win32_Process,
+# which skips a suite's own fake `ps` and can reach the real harness running
+# the suite. So FM_PROC_WINDOWS=0 is the default there, with
+# fm_test_msys_ps_shim first on PATH; a case exercising the native walk sets
+# FM_PROC_WINDOWS=1 itself. FM_TEST_NATIVE_PROC=1 keeps the host default.
+case "$(uname -s 2>/dev/null)" in
+  MINGW* | MSYS* | CYGWIN*)
+    if [ "${FM_TEST_NATIVE_PROC:-0}" != 1 ]; then
+      FM_TEST_PS_SHIM_DIR="${TMPDIR:-/tmp}/fm-test-msys-ps-shim-v1"
+      if [ ! -x "$FM_TEST_PS_SHIM_DIR/ps" ]; then
+        fm_test_ps_shim_tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-msys-ps-shim.XXXXXX") \
+          && fm_test_msys_ps_shim "$fm_test_ps_shim_tmp" \
+          && mkdir -p "$FM_TEST_PS_SHIM_DIR" \
+          && mv -f "$fm_test_ps_shim_tmp/ps" "$FM_TEST_PS_SHIM_DIR/ps"
+        rm -rf "${fm_test_ps_shim_tmp:-}"
+        unset fm_test_ps_shim_tmp
+      fi
+      export FM_PROC_WINDOWS=0
+      export PATH="$FM_TEST_PS_SHIM_DIR:$PATH"
+      # A fixture's fake ps that delegates to the real one can use this.
+      export FM_TEST_PS="$FM_TEST_PS_SHIM_DIR/ps"
+    fi
+    # A whole session start costs minutes of process starts there, so its
+    # runtime bound is scaled unless a case sets its own.
+    export FM_SESSION_START_TIMEOUT="${FM_SESSION_START_TIMEOUT:-$((120 * FM_TEST_POLL_SCALE))}"
+    ;;
+esac
 
 # skip <reason>: report a case this host cannot exercise, without failing.
 skip() {

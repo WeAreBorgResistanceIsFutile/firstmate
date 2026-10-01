@@ -167,6 +167,14 @@ test_namespace_pid1_lock_holder_is_silent() {
 
 test_opencode_plugin_delivers_exact_nudge_once() {
   local root="$TMP_ROOT/opencode-primary" out status=0
+  # OpenCode as the firstmate host is unsupported on this Windows fork, and its
+  # plugins spawn bin/*.sh directly, which Windows cannot execute (EFTYPE).
+  case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*)
+      skip "OpenCode plugin nudge: OpenCode is not a firstmate host on this setup"
+      return 0
+      ;;
+  esac
   make_primary "$root"
   cp "$ROOT/bin/fm-sessionstart-nudge.sh" "$ROOT/bin/fm-primary-scope-lib.sh" \
     "$ROOT/bin/fm-gate-refuse-lib.sh" "$ROOT/bin/fm-operational-input.sh" "$root/bin/"
@@ -212,6 +220,9 @@ EOF
 # PATH keeps every bootstrap probe fast and hermetic - it reports missing tools
 # instead of reaching the host's real gh/tmux/tasks-axi.
 RUN_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+# Git Bash's own ps has no -o, so the lock's ancestry walk needs the shim lib.sh
+# installed there to find the fixture harness.
+[ -n "${FM_TEST_PS_SHIM_DIR:-}" ] && RUN_PATH="$FM_TEST_PS_SHIM_DIR:$RUN_PATH"
 
 make_run_primary() {
   local dir=$1

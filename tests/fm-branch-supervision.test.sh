@@ -233,7 +233,7 @@ test_outcome_seed_tail_only_reads_bounded_suffix() {
   # neither inspect it nor copy it, while still validating the recent rows.
   python3 - "$store" <<'PY'
 import json, sys
-with open(sys.argv[1], 'w') as f:
+with open(sys.argv[1], 'w', newline='') as f:
     f.write('invalid old row ' + 'z' * 1100000 + '\n')
     for seq in range(2, 252):
         f.write(json.dumps(dict(seq=seq, epoch=100, task='task-1', wake='',

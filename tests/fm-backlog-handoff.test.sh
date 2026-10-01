@@ -233,7 +233,7 @@ SH
   while [ ! -f "$TMP_ROOT/reconcile-race.entered" ]; do
     kill -0 "$handoff" 2>/dev/null || fail "reconciliation-race handoff exited before backend delivery"
     i=$((i + 1))
-    [ "$i" -le 250 ] || fail "reconciliation-race handoff never reached backend delivery"
+    [ "$i" -le $((250 * FM_TEST_POLL_SCALE)) ] || fail "reconciliation-race handoff never reached backend delivery"
     sleep 0.02
   done
   corr=$(cut -d: -f2- "$home/state/.backlog-handoff-design.wake-pending")
@@ -283,7 +283,7 @@ case " $* " in
     if [ "$rc" -eq 0 ] && [ "${1:-}" = mv ]; then
       # Crash AFTER the durable move lands, and only return once the handoff is
       # observably gone so it cannot run its own post-move bookkeeping.
-      handoff_pid=$(ps -o ppid= -p "$PPID" | tr -d '[:space:]')
+      handoff_pid=$( { ps -o ppid= -p "$PPID" 2>/dev/null || cat "/proc/$PPID/ppid"; } | tr -d '[:space:]')
       fm-crash-inject "$handoff_pid" || exit 1
     fi
     ;;
@@ -358,7 +358,7 @@ case " $* " in
       # Crash BEFORE the move and never run it. This fake outlives the handoff
       # it kills, so delegating to the real binary at all - even after a pause -
       # lets an orphan complete the move the case requires left undone.
-      handoff_pid=$(ps -o ppid= -p "$PPID" | tr -d '[:space:]')
+      handoff_pid=$( { ps -o ppid= -p "$PPID" 2>/dev/null || cat "/proc/$PPID/ppid"; } | tr -d '[:space:]')
       fm-crash-inject "$handoff_pid" || exit 1
       exit 137
     fi
@@ -583,7 +583,7 @@ SH
   while [ ! -f "$TMP_ROOT/concurrent.entered" ]; do
     kill -0 "$first" 2>/dev/null || fail "first concurrent handoff exited before its blocked wake"
     i=$((i + 1))
-    [ "$i" -le 250 ] || fail "first concurrent handoff never reached its receiver wake"
+    [ "$i" -le $((250 * FM_TEST_POLL_SCALE)) ] || fail "first concurrent handoff never reached its receiver wake"
     sleep 0.02
   done
   cat > "$home/data/backlog.md" <<'EOF'
@@ -653,7 +653,7 @@ SH
   while [ ! -f "$TMP_ROOT/teardown-race.entered" ]; do
     kill -0 "$handoff" 2>/dev/null || fail "teardown-race handoff exited before its blocked wake"
     i=$((i + 1))
-    [ "$i" -le 250 ] || fail "teardown-race handoff never reached its receiver wake"
+    [ "$i" -le $((250 * FM_TEST_POLL_SCALE)) ] || fail "teardown-race handoff never reached its receiver wake"
     sleep 0.02
   done
   PATH="$basebin:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \

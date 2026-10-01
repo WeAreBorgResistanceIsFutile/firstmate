@@ -566,6 +566,10 @@ SH
   # rollback's awk rewrite cannot read the queue and must fail. No durable
   # record and no queue rewrite can remove the wake row, so the poll must fail
   # closed with an honest report and leave the row for the next poll to heal.
+  if ! fm_test_unreadable_files_supported; then
+    skip "fm-mail: ${FUNCNAME[0]} needs a write-only queue file, which this host cannot make"
+    return 0
+  fi
   printf 'uidvalidity=90009\n' > "$roll_home/state/.mail-seen"
   : > "$roll_home/state/.mail-woken"
   : > "$roll_home/state/.wake-queue"

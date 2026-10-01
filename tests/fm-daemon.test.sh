@@ -2852,6 +2852,10 @@ test_inject_wedge_alarm_throttles_when_marker_cannot_be_written() {
   dir=$(make_wedge_case wedge-unwritable-marker)
   state="$dir/state"; log="$dir/alert.log"; daemon_log="$dir/daemon.log"
   escalate_add "$state" "needs-decision: pick A"
+  if ! fm_test_readonly_dirs_supported; then
+    skip "fm-daemon: ${FUNCNAME[0]} needs a read-only directory, which this host cannot make"
+    return 0
+  fi
   chmod u-w "$state"
   WEDGE_ALARM_LAST_EPOCH=0
   LOG="$daemon_log" FM_WEDGE_ALARM_LOG="$log" FM_MAX_DEFER_SECS=600 \

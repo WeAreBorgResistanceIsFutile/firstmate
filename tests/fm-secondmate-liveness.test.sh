@@ -413,6 +413,10 @@ test_sweep_refuses_relaunch_on_ledger_errors() {
   fi
   for mode in 200 444; do
     case "$mode" in 200) word=unreadable ;; *) word=unwritable ;; esac
+    if [ "$mode" = 200 ] && ! fm_test_unreadable_files_supported; then
+      skip "sweep: an unreadable ledger (this host cannot make an unreadable file)"
+      continue
+    fi
     w=$(new_world "sweep-ledger-$mode")
     add_sm_home "$w" sm1 firstmate:fm-sm1
     fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")

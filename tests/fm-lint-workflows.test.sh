@@ -251,6 +251,7 @@ test_missing_actionlint_fails_closed() {
   for tool in bash dirname find sort awk; do
     ln -s "$(command -v "$tool")" "$fakebin/$tool"
   done
+  fm_test_msys_dlls "$fakebin"
   rc=0
   out=$(PATH="$fakebin" "$LINT_WF" --root "$tmp" 2>&1) || rc=$?
   [ "$rc" -eq 1 ] || fail "missing actionlint expected exit 1, got $rc"$'\n'"$out"
@@ -391,6 +392,8 @@ test_installer_falls_back_to_shasum() {
   for tool in bash dirname mktemp rm awk mkdir install cat chmod; do
     ln -s "$(command -v "$tool")" "$fakebin/$tool"
   done
+
+  fm_test_msys_dlls "$fakebin"
   fm_install_stub_uname "$fakebin"
   fm_install_stub_curl "$fakebin"
   fm_install_stub_hasher "$fakebin" shasum

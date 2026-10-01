@@ -11,6 +11,9 @@
 #
 # SUMMARY gets one line per suite: <name> rc= secs= ok= skip= notok=.
 # Exit status is 0 when every suite that ran exited 0.
+#
+# FM_WINDOWS_TEST_TIMEOUT: seconds one suite may run before it is stopped
+# (default 3600); a few suites need longer on Git Bash.
 set -u
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -48,7 +51,7 @@ done
 run_one() {  # <root> <out> <name>
   local start rc log="$2/$3.log"
   start=$(date +%s)
-  (cd "$1" && timeout 3600 bash "tests/$3.test.sh") >"$log" 2>&1
+  (cd "$1" && timeout "${FM_WINDOWS_TEST_TIMEOUT:-3600}" bash "tests/$3.test.sh") >"$log" 2>&1
   rc=$?
   printf '%s rc=%s secs=%s ok=%s skip=%s notok=%s\n' "$3" "$rc" "$(($(date +%s) - start))" \
     "$(grep -c '^ok' "$log")" "$(grep -c '^skip' "$log")" "$(grep -c '^not ok' "$log")" >>"$2/SUMMARY"

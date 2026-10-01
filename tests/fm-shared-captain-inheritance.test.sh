@@ -318,8 +318,9 @@ test_unsafe_artifacts_and_failure_restore_readonly_mode() {
   assert_grep "unsafe destination" "$err" "unsafe destination hardlink error should be explicit"
   rm -f "$second/data/captain-shared.md" "$other"
 
-  # Root reads a mode-000 file regardless, which would make this case vacuous.
-  if [ "$(id -u)" != 0 ]; then
+  # Root reads a mode-000 file regardless, which would make this case vacuous,
+  # and so does a host that cannot make an unreadable file.
+  if [ "$(id -u)" != 0 ] && fm_test_unreadable_files_supported; then
     write_shared "$second/data/captain-shared.md" "unreadable local bytes"
     chmod 000 "$second/data/captain-shared.md"
     err="$TMP_ROOT/unreadable-dest.err"
@@ -332,6 +333,10 @@ test_unsafe_artifacts_and_failure_restore_readonly_mode() {
     rm -f "$second/data/captain-shared.md"
   fi
 
+  if ! fm_test_readonly_dirs_supported; then
+    pass "unsafe shared captain artifacts are rejected (read-only-directory step skipped: this host cannot deny directory writes)"
+    return 0
+  fi
   write_shared "$second/data/captain-shared.md" "permission drift"
   chmod "$FM_SHARED_CAPTAIN_MODE" "$second/data/captain-shared.md"
   before_mode=$(file_mode "$second/data/captain-shared.md")

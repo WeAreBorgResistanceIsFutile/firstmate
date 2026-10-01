@@ -27,10 +27,11 @@ trap fm_test_cleanup EXIT
 
 # Scaled: a latched skip must beat one bound, and on Git Bash the skip path's
 # own process starts alone can outlast an unscaled 2s.
-BOUND_SECS=$((2 * FM_TEST_POLL_SCALE))
+BOUND_SECS=2
+[ "$FM_TEST_POLL_SCALE" -eq 1 ] || BOUND_SECS=$((4 * FM_TEST_POLL_SCALE))
 # Generous enough that a slow CI box never flakes, far below the unbounded hang
 # (300s per read) and below the session-start budget the defect consumed.
-BOUND_CEILING=30
+BOUND_CEILING=$((30 * FM_TEST_POLL_SCALE))
 
 # A backend whose `show` never returns. Everything the compatibility gate and the
 # startup listing need still answers promptly, so the only thing under test is
@@ -411,7 +412,7 @@ fm_write_meta "$E2E_HOME/state/wedged-task.meta" \
 DIGEST="$E2E/digest.out"
 DIGEST_START=$(date +%s)
 env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
-  FM_HOME="$E2E_HOME" FM_ROOT_OVERRIDE="$E2E_ROOT" PATH="$E2E_FAKEBIN:$BASE_PATH" \
+  FM_PROC_WINDOWS=0 FM_HOME="$E2E_HOME" FM_ROOT_OVERRIDE="$E2E_ROOT" PATH="$E2E_FAKEBIN:$BASE_PATH" \
   FM_BACKLOG_ROW_TIMEOUT_SECS="$BOUND_SECS" \
   "$ROOT/bin/fm-session-start.sh" > "$DIGEST" 2>&1 || true
 DIGEST_ELAPSED=$(elapsed_since "$DIGEST_START")

@@ -183,6 +183,10 @@ test_home_seed_refuses_broken_registry_symlink() {
 
 test_home_seed_refuses_unreadable_registry() {
   local home sub err registry
+  if ! fm_test_unreadable_files_supported; then
+    skip "fm-secondmate-safety: ${FUNCNAME[0]} needs an unreadable file, which this host cannot make"
+    return 0
+  fi
   home="$TMP_ROOT/unreadable-registry-home"
   sub="$TMP_ROOT/unreadable-registry-subhome"
   err="$TMP_ROOT/unreadable-registry.err"
@@ -719,6 +723,11 @@ test_home_seed_refuses_projectless_home_with_uninspectable_projects() {
   home="$TMP_ROOT/no-projects-uninspectable-home"
   sub="$TMP_ROOT/no-projects-uninspectable-subhome"
   err="$TMP_ROOT/no-projects-uninspectable.err"
+  # chmod denies directory reads exactly where it denies file reads.
+  if ! fm_test_unreadable_files_supported; then
+    skip "fm-secondmate-safety: ${FUNCNAME[0]} needs an unreadable directory, which this host cannot make"
+    return 0
+  fi
   mkdir -p "$home/data" "$home/state" "$sub/data" "$sub/projects/hidden-clone"
   mark_firstmate_home "$sub"
   fm_git_init_commit "$sub/projects/hidden-clone"

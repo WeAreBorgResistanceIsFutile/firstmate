@@ -308,7 +308,7 @@ test_fail_open_missing_node() {
     ln -s "$tool_path" "$fakebin/$tool"
   done
   # node deliberately absent from this PATH.
-  out=$(PATH="$fakebin" "$CHECK" --command 'cd projects/foo' 2>&1); rc=$?
+  out=$(PATH="$(fm_test_isolated_path "$fakebin")" "$CHECK" --command 'cd projects/foo' 2>&1); rc=$?
   expect_code 0 "$rc" "transport must fail open when node is unavailable"
   [ -z "$out" ] || fail "transport produced output without node: $out"
   pass "cd-guard: fails open (never blocks) when node is missing"
@@ -322,7 +322,7 @@ test_fail_open_missing_jq_on_stdin() {
     ln -s "$tool_path" "$fakebin/$tool"
   done
   # jq deliberately absent: the stdin transport cannot extract the command.
-  out=$(printf '{"tool_input":{"command":"cd projects/foo"}}' | PATH="$fakebin" "$CHECK" 2>&1); rc=$?
+  out=$(printf '{"tool_input":{"command":"cd projects/foo"}}' | PATH="$(fm_test_isolated_path "$fakebin")" "$CHECK" 2>&1); rc=$?
   expect_code 0 "$rc" "stdin transport must fail open when jq is unavailable"
   [ -z "$out" ] || fail "transport produced output without jq on the stdin path: $out"
   pass "cd-guard: fails open on the stdin path when jq is missing"
@@ -348,7 +348,7 @@ EOF
   chmod +x "$fakebin/node"
   # No cd/pushd/popd substring: the prefilter must fast-allow before scoping or
   # the policy runtime is ever consulted.
-  out=$(PATH="$fakebin" "$dir/bin/fm-cd-pretool-check.sh" --command 'git status' 2>&1); rc=$?
+  out=$(PATH="$(fm_test_isolated_path "$fakebin")" "$dir/bin/fm-cd-pretool-check.sh" --command 'git status' 2>&1); rc=$?
   expect_code 0 "$rc" "prefilter must fast-allow a command with no cd/pushd/popd substring"
   [ -z "$out" ] || fail "prefilter fast-allow produced output: $out"
   [ ! -e "$marker" ] || fail "prefilter fast-allow still invoked the node policy owner"

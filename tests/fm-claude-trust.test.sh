@@ -44,12 +44,24 @@ trusted_paths() {  # <store>
   node -e 'const j=require("node:fs").existsSync(process.argv[1])?JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")):{};for(const [k,v] of Object.entries(j.projects||{})){if(v&&v.hasTrustDialogAccepted===true)console.log(k);}' "$1"
 }
 
+# store_key <path>: the key the store records for <path>. On Git Bash, MSYS
+# and Cygwin node.exe receives the native C:/... spelling of an existing path;
+# a made-up one such as /other/path stays as written.
+store_key() {
+  case "$(uname -s 2>/dev/null)" in
+    MINGW* | MSYS* | CYGWIN*) if [ -e "$1" ]; then cygpath -m "$1"; else printf '%s
+' "$1"; fi ;;
+    *) printf '%s
+' "$1" ;;
+  esac
+}
+
 assert_trusted() {  # <store> <path> <msg>
-  trusted_paths "$1" | grep -Fqx "$2" || fail "$3"
+  trusted_paths "$1" | grep -Fqx "$(store_key "$2")" || fail "$3"
 }
 
 assert_not_trusted() {  # <store> <path> <msg>
-  trusted_paths "$1" | grep -Fqx "$2" && fail "$3"
+  trusted_paths "$1" | grep -Fqx "$(store_key "$2")" && fail "$3"
   return 0
 }
 
@@ -58,7 +70,8 @@ assert_not_trusted() {  # <store> <path> <msg>
 store_value() {  # <store> <key...> -> the JSON value at that key path
   local store=$1
   shift
-  node -e 'const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));let v=j;for(const k of process.argv.slice(2)){v=(v===undefined||v===null)?undefined:v[k];}console.log(JSON.stringify(v));' "$store" "$@"
+  # No MSYS argument conversion: a key such as /other/path must reach node as is.
+  MSYS2_ARG_CONV_EXCL='*' node -e 'const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));let v=j;for(const k of process.argv.slice(2)){v=(v===undefined||v===null)?undefined:v[k];}console.log(JSON.stringify(v));' "$(store_key "$store")" "$@"
 }
 
 assert_store_value() {  # <store> <expected-json> <msg> <key...>
@@ -74,7 +87,8 @@ assert_store_value() {  # <store> <expected-json> <msg> <key...>
 # running app reads only from the PROJECT-root entry, never the worktree
 # entry, so this is what actually proves the dialog is suppressed.
 assert_all_flags() {
-  local store=$1 key=$2 msg=$3
+  local store=$1 key msg=$3
+  key=$(store_key "$2")
   node -e '
     const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));
     const e=(j.projects||{})[process.argv[2]]||{};
@@ -89,7 +103,8 @@ assert_all_flags() {
 # entry had no prior explicit "Yes, allow" for external CLAUDE.md imports, so
 # a spawn never manufactures that consent from an absent flag.
 assert_trust_only_no_import_consent() {
-  local store=$1 key=$2 msg=$3
+  local store=$1 key msg=$3
+  key=$(store_key "$2")
   node -e '
     const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));
     const e=(j.projects||{})[process.argv[2]]||{};
@@ -107,8 +122,9 @@ node_free_path() {  # <case-dir> -> a bin dir holding the script's own tools but
   local dir=$1/nonode-bin tool
   mkdir -p "$dir"
   for tool in bash env git mkdir; do
-    ln -sf "$(command -v "$tool")" "$dir/$tool"
+    fm_test_link_tool "$dir" "$tool"
   done
+  fm_test_msys_dlls "$dir"
   printf '%s\n' "$dir"
 }
 
@@ -209,7 +225,7 @@ test_registration_carries_forward_existing_import_consent() {
   read_case "$rec"
   store="$CONFIG/.claude.json"
   cat > "$store" <<JSON
-{"hasCompletedOnboarding":true,"projects":{"$PROJ":{"hasTrustDialogAccepted":true,"hasClaudeMdExternalIncludesApproved":true,"hasClaudeMdExternalIncludesWarningShown":true}}}
+{"hasCompletedOnboarding":true,"projects":{"$(store_key "$PROJ")":{"hasTrustDialogAccepted":true,"hasClaudeMdExternalIncludesApproved":true,"hasClaudeMdExternalIncludesWarningShown":true}}}
 JSON
   run_trust "$CONFIG" "$WT" "$PROJ" >/dev/null || fail "registration failed against a project that already approved external imports"
   assert_all_flags "$store" "$WT" \
@@ -229,12 +245,12 @@ test_project_root_entry_preserves_other_keys() {
   read_case "$rec"
   store="$CONFIG/.claude.json"
   cat > "$store" <<JSON
-{"hasCompletedOnboarding":true,"projects":{"$PROJ":{"hasTrustDialogAccepted":false,"allowedTools":["Read"]}}}
+{"hasCompletedOnboarding":true,"projects":{"$(store_key "$PROJ")":{"hasTrustDialogAccepted":false,"allowedTools":["Read"]}}}
 JSON
   run_trust "$CONFIG" "$WT" "$PROJ" >/dev/null || fail "registration failed against an existing project entry"
   assert_trust_only_no_import_consent "$store" "$PROJ" \
     "the project-root entry did not gain trust, or gained unearned import consent it had never been asked for"
-  assert_store_value "$store" '["Read"]' "the project entry's unrelated settings were lost" projects "$PROJ" allowedTools
+  assert_store_value "$store" '["Read"]' "the project entry's unrelated settings were lost" projects "$(store_key "$PROJ")" allowedTools
   pass "fm-claude-trust.sh: preserves unrelated keys on the project-root entry"
 }
 
@@ -251,7 +267,7 @@ test_project_root_entry_declined_external_imports_is_not_overridden() {
   read_case "$rec"
   store="$CONFIG/.claude.json"
   cat > "$store" <<JSON
-{"hasCompletedOnboarding":true,"projects":{"$PROJ":{"hasTrustDialogAccepted":true,"hasClaudeMdExternalIncludesApproved":false,"hasClaudeMdExternalIncludesWarningShown":true,"allowedTools":["Read"]}}}
+{"hasCompletedOnboarding":true,"projects":{"$(store_key "$PROJ")":{"hasTrustDialogAccepted":true,"hasClaudeMdExternalIncludesApproved":false,"hasClaudeMdExternalIncludesWarningShown":true,"allowedTools":["Read"]}}}
 JSON
   before=$(cat "$store")
   out=$(run_trust "$CONFIG" "$WT" "$PROJ")
@@ -277,7 +293,7 @@ test_project_root_entry_default_import_flags_are_not_a_decline() {
   read_case "$rec"
   store="$CONFIG/.claude.json"
   cat > "$store" <<JSON
-{"hasCompletedOnboarding":true,"projects":{"$PROJ":{"allowedTools":[],"mcpContextUris":[],"mcpServers":{},"enabledMcpjsonServers":[],"disabledMcpjsonServers":[],"hasTrustDialogAccepted":false,"hasClaudeMdExternalIncludesApproved":false,"hasClaudeMdExternalIncludesWarningShown":false}}}
+{"hasCompletedOnboarding":true,"projects":{"$(store_key "$PROJ")":{"allowedTools":[],"mcpContextUris":[],"mcpServers":{},"enabledMcpjsonServers":[],"disabledMcpjsonServers":[],"hasTrustDialogAccepted":false,"hasClaudeMdExternalIncludesApproved":false,"hasClaudeMdExternalIncludesWarningShown":false}}}
 JSON
   out=$(run_trust "$CONFIG" "$WT" "$PROJ")
   expect_code 0 $? "a never-asked default entry must not be refused as a decline: $out"
@@ -295,7 +311,7 @@ test_registration_is_idempotent() {
   run_trust "$CONFIG" "$WT" "$PROJ" >/dev/null
   out=$(run_trust "$CONFIG" "$WT" "$PROJ")
   expect_code 0 $? "a repeat registration must succeed: $out"
-  count=$(trusted_paths "$CONFIG/.claude.json" | grep -Fxc "$WT")
+  count=$(trusted_paths "$CONFIG/.claude.json" | grep -Fxc "$(store_key "$WT")")
   [ "$count" = 1 ] || fail "a repeat registration duplicated the entry ($count)"
   pass "fm-claude-trust.sh: repeat registration is idempotent"
 }
@@ -511,11 +527,18 @@ test_symlinked_store_to_a_foreign_owned_target_is_refused() {
     pass "fm-claude-trust.sh: refuses a store symlinked to another user's file (skipped as root)"
     return 0
   fi
-  ln -s /etc/passwd "$CONFIG/.claude.json"
+  local foreign=/etc/passwd
+  # Git Bash reports every file as owned by the current user (and has no
+  # /etc/passwd), so no file there can stand in for another user's.
+  if [ ! -f "$foreign" ] || [ -O "$foreign" ]; then
+    skip "fm-claude-trust.sh: refuses a store symlinked to another user's file (this host shows no file owned by another user)"
+    return 0
+  fi
+  ln -s "$foreign" "$CONFIG/.claude.json"
   out=$(run_trust "$CONFIG" "$WT" "$PROJ")
   expect_code 1 $? "a store resolving to another user's file must be refused: $out"
   assert_contains "$out" "not owned by this user" "the refusal did not name the ownership failure"
-  assert_contains "$out" "/etc/passwd" "the refusal named the link rather than the resolved target it judged"
+  assert_contains "$out" "$foreign" "the refusal named the link rather than the resolved target it judged"
   pass "fm-claude-trust.sh: refuses a store symlinked to another user's file"
 }
 

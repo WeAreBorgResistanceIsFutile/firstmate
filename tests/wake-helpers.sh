@@ -313,7 +313,9 @@ SH
 # TERM can be ignored or remain pending on a stopped child, so never follow it
 # with an unbounded wait. Keep process evidence before the final owned-PID kill.
 wait_for_exit() {
-  local pid=$1 limit=${2:-50} i=0
+  # Scaled by FM_TEST_POLL_SCALE (tests/lib.sh): on Git Bash a watcher's first
+  # pass alone can take tens of seconds of process starts.
+  local pid=$1 limit=$(( ${2:-50} * ${FM_TEST_POLL_SCALE:-1} )) i=0
   while [ "$i" -lt "$limit" ]; do
     if ! is_live_non_zombie "$pid"; then
       wait "$pid"
