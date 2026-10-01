@@ -594,7 +594,7 @@ else
 fi
 child=$!
 cycle_begin "$child" started "$(fm_pid_identity "$child" 2>/dev/null || true)"
-child_done=0
+child_done=0 wake_grace=0
 
 owned_child_finished() {
   local rc=$1 signal reason_type status
@@ -695,7 +695,15 @@ while :; do
     owned_child_finished "$rc"
     exit $?
   fi
-  [ "$(date +%s)" -ge "$deadline" ] && break
+  if [ "$(date +%s)" -ge "$deadline" ]; then
+    # A child that already printed its wake is closing; on a slow host its exit
+    # cleanup can outlast the window. Give it one more window to finish.
+    if [ "$wake_grace" -ne 0 ] || ! watch_output_has_wake "$child_out"; then
+      break
+    fi
+    wake_grace=1
+    deadline=$(( $(date +%s) + CONFIRM_TIMEOUT + 1 ))
+  fi
   sleep 0.2
 done
 

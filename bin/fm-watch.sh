@@ -2360,6 +2360,18 @@ if ! fm_procevent_launch_confirm_seconds >/dev/null; then
   exit 1
 fi
 
+# recovery_state_unsafe_exit <message>: exit 1 from a recovery-marker failure.
+# The marker's lock cannot be taken once the state directory is gone, so a
+# torn-down home is logged with the same reason the per-poll check gives.
+recovery_state_unsafe_exit() {
+  if [ ! -d "$STATE" ]; then
+    echo "watcher: exiting - state directory no longer exists: $STATE" >&2
+  else
+    echo "watcher: $1" >&2
+  fi
+  exit 1
+}
+
 # evict_stalled_holder <pid>: retire a live lock holder whose beacon stalled past
 # WATCHER_STALL_BOUND. The pid is signalled only while it still proves the
 # lock's own recorded identity (fm_watcher_lock_matches_pid: this home, this
@@ -2416,13 +2428,11 @@ if [ -n "${FM_LOCK_RECOVERED_PID:-}" ]; then
 fi
 if [ "${FM_WATCH_HANDLING_SUCCESSOR:-0}" != 1 ]; then
   if ! fm_recovery_marker_reopen_announced "$WATCHER_DOWNTIME_MARKER"; then
-    echo "watcher: recovery state could not be reopened safely; retaining stale lock evidence" >&2
-    exit 1
+    recovery_state_unsafe_exit "recovery state could not be reopened safely; retaining stale lock evidence"
   fi
 fi
 if ! fm_recovery_marker_arm_check "$WATCHER_DOWNTIME_MARKER"; then
-  echo "watcher: recovery state could not be consumed safely; retaining stale lock evidence" >&2
-  exit 1
+  recovery_state_unsafe_exit "recovery state could not be consumed safely; retaining stale lock evidence"
 fi
 if [ "${FM_WATCH_HANDLING_SUCCESSOR:-0}" = 1 ]; then
   WATCHER_RECOVERY_PENDING=0
@@ -2590,8 +2600,7 @@ resurface_after_downtime() {
   fi
   if [ "$WATCHER_RECOVERY_PENDING" -ne 1 ]; then
     if ! fm_recovery_marker_arm_check "$WATCHER_DOWNTIME_MARKER"; then
-      echo "watcher: recovery state could not be consumed safely" >&2
-      exit 1
+      recovery_state_unsafe_exit "recovery state could not be consumed safely"
     fi
     [ "$FM_RECOVERY_MARKER_ACTION" = recover ] || return 0
   fi
