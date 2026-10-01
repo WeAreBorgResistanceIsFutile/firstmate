@@ -217,6 +217,12 @@ EOF
 
 dir_mode() {
   local path=$1
+  # Git Bash, MSYS and Cygwin synthesize POSIX modes on NTFS, where a chmod
+  # 0700 is not reflected back; only the directory's existence is checked there,
+  # as bin/fm-pr-lib.sh's fm_pr_file_mode_matches treats that host.
+  case "$(uname -s 2>/dev/null)" in
+    MINGW* | MSYS* | CYGWIN*) [ -d "$path" ] && printf '700\n' && return 0 ;;
+  esac
   if /usr/bin/stat -f %Lp "$path" >/dev/null 2>&1; then
     /usr/bin/stat -f %Lp "$path"
   else

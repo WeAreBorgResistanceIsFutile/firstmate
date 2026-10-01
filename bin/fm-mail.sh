@@ -501,6 +501,9 @@ mail_poll() {
     fm_lock_release "$STATE_DIR/.mail-seen.lock"
     return 1
   fi
+  # A Windows Python ends each row with CRLF; the CR would ride into the
+  # generation and every wake key. clean() already strips it from fields.
+  list="${list//$'\r'/}"
   # Split the generation guard without `head`.
   # Under `set -o pipefail`, `printf | head -n1` can EPIPE a multi-row list and abort the poll.
   first_line="${list%%$'\n'*}"

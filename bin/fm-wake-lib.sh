@@ -1223,8 +1223,13 @@ fm_lock_try_acquire() {
 }
 
 fm_lock_acquire_wait() {
-  local lockdir=$1
+  local lockdir=$1 parent
+  parent=${lockdir%/*}
+  [ "$parent" != "$lockdir" ] || parent=.
   while ! fm_lock_try_acquire "$lockdir"; do
+    # A lock whose parent directory is gone (a torn-down home or state
+    # directory) can never be acquired; refuse instead of spinning forever.
+    [ -d "${parent:-/}" ] || return 1
     sleep 0.1
   done
 }
