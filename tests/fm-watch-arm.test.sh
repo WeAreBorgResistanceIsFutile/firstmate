@@ -374,7 +374,7 @@ test_attached_arm_hands_a_stalled_holder_to_its_replacement() {
   # end in the auto-arm FAILED notice.
   PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" \
     FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    FM_ARM_CONFIRM_TIMEOUT=10 FM_GUARD_GRACE=5 FM_WATCHER_STALL_BOUND=12 "$WATCH_ARM" > "$rearmout" 2>&1 &
+    FM_ARM_CONFIRM_TIMEOUT=$((10 * FM_TEST_POLL_SCALE)) FM_GUARD_GRACE=5 FM_WATCHER_STALL_BOUND=12 "$WATCH_ARM" > "$rearmout" 2>&1 &
   ARM_PID=$!
   wait_for_exit "$ARM_PID" 300
   status=$?

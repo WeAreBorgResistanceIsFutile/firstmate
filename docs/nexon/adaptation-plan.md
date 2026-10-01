@@ -346,15 +346,13 @@ Git Bash + herdr, or move the first mate into WSL.
 Goal: a worker takes a Nexon4 change from brief to a pushed branch with an open
 Azure DevOps PR, on any free workbench, while the other workbenches keep working.
 
-1. **First clone of a repo into a workbench** (`bin/fm-workbench.sh clone
-   <workbench> <repo> <origin>`), always on the captain's word, then kept: this is
-   how K, O and M get their own `EgBiztEllat`, `Berszamfejtes`, `MappingEngine`
-   (today they all use J's `C:\git\<app>`), and how research on a brand-new
-   repo starts. For an external repo Nexon4 runs against, the matching
-   `NEXON_EGBIZTELLAT_ROOT` / `NEXON_BERSZAMFEJTES_ROOT` /
-   `NEXON_MAPPINGENGINE_ROOT` line in that workbench's `workbench.cmd` is a
-   captain step. Check each app's own configuration for ports or URLs that assume
-   one instance.
+1. **First clone of a brand-new repo into a workbench** (`bin/fm-workbench.sh
+   clone <workbench> <repo> <origin>`), always on the captain's word, then kept:
+   how research on a repo no workbench has yet starts. The external repos Nexon4
+   runs against (`EgBiztEllat`, `Berszamfejtes`, `MappingEngine`) are not cloned
+   here: `recruit-agent` is their single owner (decided 2026-10-01, see
+   *Follow-ups outside this repo*). Check each new app's own configuration for
+   ports or URLs that assume one instance.
 2. **Prepare the task branch** (`bin/fm-workbench.sh prepare <task> <base>`, run
    by spawn): refuse if the clone is dirty (beyond the 11 Switch-Site configs for
    Nexon4); for Nexon4 `Switch-Site.ps1 -Reset`, `git fetch`, create the task
@@ -425,6 +423,25 @@ behind the workbench mode, so upstream churn stays mergeable.
 ## Follow-ups outside this repo
 
 - The `recruit-agent` skill (`claude-skills`, plugin `nexon4-ops`) documents the
-  external repos as shared, not cloned. It needs to clone them per workbench and
-  write the `NEXON_*_ROOT` values into `workbench.cmd`. A newly recruited
-  workbench is then picked up by Phase 1 step 4's discovery.
+  external repos as shared, not cloned. Decided 2026-10-01: it becomes the
+  single owner of each workbench's own `EgBiztEllat`, `Berszamfejtes` and
+  `MappingEngine` clones, on by default (`-SkipExternalClones` opts out), and
+  writes `NEXON_EGBIZTELLAT_ROOT` / `NEXON_BERSZAMFEJTES_ROOT` /
+  `NEXON_MAPPINGENGINE_ROOT` into `workbench.cmd`. Nexon4 already reads them
+  (`Tools\restart-dev-hosts.ps1`, `Tools\Workbench.cmd`), so only the skill
+  changes:
+  - `New-AgentWorkbench.ps1`: the three repos (Azure DevOps origins, branch
+    `main`) cloned beside the product clone after the claude-skills clone,
+    skipped when present, `core.longpaths`, no credential prompt; reachability
+    probed up front with the Nexon4 probe; the three variables written by
+    `Write-WorkbenchCmd`, kept from an existing claim on re-run, and checked
+    through `cmd.exe` by `Assert-WorkbenchUsable`; the generated CLAUDE.md
+    stops calling them shared.
+  - `MANUAL.md`: the `workbench.cmd` template, the resolution check, and the
+    "shared, not cloned" rule; `SKILL.md`: one overview line.
+  - K, O and M are backfilled by re-running with `-SkipClone`, one workbench
+    at a time and never mid-task (captain step).
+  Own clones do not lift the port rule: each external app still runs once per
+  machine under `app:<name>`; only Nexon4 itself (one IIS site per clone) runs
+  in every workbench at once. A newly recruited workbench is picked up by
+  Phase 1 step 4's discovery.
