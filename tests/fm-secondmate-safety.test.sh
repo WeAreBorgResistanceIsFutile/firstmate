@@ -1185,6 +1185,8 @@ test_home_seed_resolves_relative_source_origins() {
   printf '%s\n' "$out" | grep -F "home=$subhome_abs" >/dev/null || fail "seed did not report relative-origin subhome"
   [ -d "$subhome/projects/alpha/.git" ] || fail "relative source origin was not cloned"
   actual=$(git -C "$subhome/projects/alpha" remote get-url origin)
+  # Native Windows git records a local origin as C:/...; compare it as a path.
+  case "$(uname -s 2>/dev/null)" in MINGW* | MSYS* | CYGWIN*) actual=$(cygpath -u "$actual") ;; esac
   [ "$actual" = "$expected" ] || fail "relative source origin was not cloned through the resolved path"
   FM_HOME="$home" "$ROOT/bin/fm-home-seed.sh" design "$subhome" alpha >/dev/null \
     || fail "relative source origin did not compare equal on reseed"

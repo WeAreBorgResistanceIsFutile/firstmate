@@ -363,6 +363,17 @@ normalize_origin_url() {
       prefix=${url%%:*}
       case "$prefix" in
         */*) ;;
+        [A-Za-z])
+          # Native Windows git records a local origin as C:/...; on Git Bash,
+          # MSYS and Cygwin that is a path, elsewhere an scp-style host:path.
+          case "$(uname -s 2>/dev/null)" in
+            MINGW* | MSYS* | CYGWIN*) url=$(cygpath -u "$url") ;;
+            *)
+              printf '%s\n' "$url"
+              return
+              ;;
+          esac
+          ;;
         *)
           printf '%s\n' "$url"
           return
