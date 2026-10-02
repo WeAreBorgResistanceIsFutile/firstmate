@@ -145,6 +145,7 @@ _fm_proc_windows_start_pid() {
 # `chain` walks from pid $2 up its parents (at most 16 rows); mode `pid` prints
 # pid $2 alone, or nothing when it does not exist. Returns 1 when the query
 # itself fails.
+# shellcheck disable=SC2016,SC1003 # PowerShell source, single-quoted on purpose
 _fm_proc_windows_rows() {  # <chain|pid> <pid>
   local mode=$1 pid=$2 hops script
   case "$pid" in '' | *[!0-9]*) return 1 ;; esac

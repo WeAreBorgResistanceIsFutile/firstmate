@@ -90,3 +90,7 @@ fm-extension-binding # third-party extension host unused; needs .sh spawn via ba
 
 # Supported features whose fast path cannot work on this host; the product falls back.
 fm-backend-herdr-eventwait-smoke # Windows CPython has no AF_UNIX, so the herdr push reader never connects; the watcher polls instead
+
+# Relay (public mentions and follow-ups) is unused.
+fm-public-followup # Relay unused
+fm-x-mode # Relay unused

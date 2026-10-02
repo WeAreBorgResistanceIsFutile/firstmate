@@ -199,7 +199,7 @@ lease_files() {
 }
 
 cmd_lease() {  # <fresh:0|1> <task> <repo> [<workbench>]
-  local fresh=$1 task=$2 repo=$3 want=${4:-} f held_wb= id root clone site url identity posix dirt off holder name
+  local fresh=$1 task=$2 repo=$3 want=${4:-} f held_wb='' id root clone site url identity posix dirt off holder name
   local found_clone=0 reasons=
   valid_name "$task" || { echo "error: invalid task id '$task'" >&2; return 2; }
   valid_name "$repo" || { echo "error: invalid repo name '$repo'" >&2; return 2; }
@@ -375,7 +375,9 @@ case "${1:-}" in
     fi
     ;;
   status) [ $# -eq 1 ] || usage; cmd_status ;;
-  path) [ $# -eq 3 ] && valid_name "$2" && valid_name "$3" || usage; lease_file "$2" "$3" ;;
+  path)
+    if [ $# -eq 3 ] && valid_name "$2" && valid_name "$3"; then lease_file "$2" "$3"; else usage; fi
+    ;;
   check) [ $# -eq 3 ] || usage; cmd_check "$2" "$3" ;;
   *) usage ;;
 esac

@@ -225,6 +225,7 @@ fm_workbench_from_iis_rows() {
 fm_workbench_switch_site_paths() {  # <posix-clone>
   local script=$1/Switch-Site.ps1
   [ -f "$script" ] || return 0
+  # shellcheck disable=SC1003 # tr's '\\' is one literal backslash
   tr -d '\r' < "$script" \
     | sed -n 's/^[[:space:]]*\[PSCustomObject\]@{[[:space:]]*Path[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
     | tr '\\' /

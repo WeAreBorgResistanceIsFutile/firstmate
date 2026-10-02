@@ -1,5 +1,7 @@
+# shellcheck shell=bash
 # Nexon fork: rcfile for the Git Bash that runs inside a herdr task pane on
 # Windows. Started by fm_backend_herdr_windows_shell_prepare in herdr.sh.
+# shellcheck source=/dev/null
 [ -f ~/.bashrc ] && . ~/.bashrc
 # Herdr's Windows build learns a pane's directory only from OSC 9;9, which it
 # injects into its PowerShell prompt; a child bash has to emit it itself.

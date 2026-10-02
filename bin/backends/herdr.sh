@@ -3114,11 +3114,13 @@ fm_backend_herdr_windows_ps() {
   # native command line, and Windows PowerShell does not parse that back.
   case "$*" in
     '-axo pid=,ppid=,comm=')
+      # shellcheck disable=SC2016 # PowerShell source, single-quoted on purpose
       script='$ErrorActionPreference = '\''Stop'\''; foreach ($o in Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,Name) { [string]$o.ProcessId + '\'' '\'' + [string]$o.ParentProcessId + '\'' '\'' + $o.Name }'
       ;;
     '-p '*' -o args=')
       set -- "${2:-}"
       case "$1" in '' | *[!0-9]*) return 1 ;; esac
+      # shellcheck disable=SC2016 # PowerShell source, single-quoted on purpose
       script='$ErrorActionPreference = '\''Stop'\''; $o = Get-CimInstance Win32_Process -Filter '\''ProcessId='"$1"\'' -Property CommandLine; if (-not $o) { exit 1 }; $o.CommandLine -replace '\''[\t\r\n]'\'', '\'' '\'''
       ;;
     *) return 1 ;;
