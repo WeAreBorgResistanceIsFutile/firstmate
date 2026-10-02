@@ -239,7 +239,7 @@ test_reworded_guidance_requires_first_line_marker() {
         || fail "ensure failed for unmarked reworded guidance"
       # AGENTS.md is the helper's generated output contract, not implementation source.
       assert_grep '## Editing these notes' "$repo/AGENTS.md" "ensure removed project guidance"
-      count=$(grep -Fxc "## Maintaining this file${eol%$'\n'}" "$repo/AGENTS.md")
+      count=$(grep -UFxc "## Maintaining this file${eol%$'\n'}" "$repo/AGENTS.md")
       [ "$count" -eq 1 ] || fail "guidance without a first-line mark did not gain the canonical section"
       assert_claude_pointer "$repo/CLAUDE.md"
       cp "$repo/AGENTS.md" "$repo/.after-first"

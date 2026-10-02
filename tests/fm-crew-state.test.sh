@@ -5441,7 +5441,9 @@ with sqlite3.connect(sys.argv[1]) as db:
         for r in json.load(open(sys.argv[2]))
     ])
 PY
-  FM_FAKE_AXI_HOME="repo: $d/wt
+  # The fixture's python recorded the worktree as Git Bash handed it over:
+  # converted to a Windows path there (cygpath -m spelling).
+  FM_FAKE_AXI_HOME="repo: $(cygpath -m "$d/wt" 2>/dev/null || printf '%s' "$d/wt")
 $(cat "$ROOT/tests/captures/no-mistakes-v1.70.1/overview.toon")"
   FM_FAKE_AXI_STATUS=$(captured_axi_status superseded "$branch" 01M2FNFPK984YP0EHFTD1XEF8P)
   FM_FAKE_AXI_STATUS_RUN=$(captured_axi_status replacement "$branch" "$newer")

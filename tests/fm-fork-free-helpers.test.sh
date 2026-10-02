@@ -58,7 +58,12 @@ test_path_helpers_match_dirname_and_basename() {
     $'caf\xc3\xa9/\xc3\xbc.status' $'\xff\xfe/\xc3.x' $'a/\xff/' > "$cases"
   cat > "$script" <<'SH'
 . "$1/bin/fm-wake-lib.sh"
+msys=0
+case "$(uname -s)" in MSYS*|MINGW*|CYGWIN*) msys=1 ;; esac
 while IFS= read -r -d '' p; do
+  # POSIX leaves a leading exactly-two-slash path implementation-defined;
+  # Git Bash's dirname and basename keep it as a network-share root.
+  if [ "$msys" = 1 ]; then case "$p" in //|//[!/]*) continue ;; esac; fi
   fm_dirname_to got "$p"
   want=$(dirname -- "$p")
   [ "$got" = "$want" ] || printf 'dirname %q: helper %q, command %q\n' "$p" "$got" "$want"
@@ -187,6 +192,9 @@ reference() {  # the replaced grep | tail -1 | cut -d= -f2- lookup
   t="${w##*:}"; t="${t#fm-}"; printf '%s' "$t"
 }
 for w in sess:w1 old sess:w2 term-3 '' a=b=c a sess:w5 $'sess:w5\r' ' sess:w6 ' sess:w6 t7 sess:w9 sess:fm-fallback-x unknown; do
+  # Git Bash command substitution drops a trailing CR, so the replaced
+  # pipeline cannot be reproduced for the CR-terminated record there.
+  case "$(uname -s)" in MSYS*|MINGW*|CYGWIN*) case "$w" in sess:w5|$'sess:w5\r') continue ;; esac ;; esac
   got=$(window_to_task "$w" "$state")
   want=$(reference "$w")
   [ "$got" = "$want" ] || printf 'window %q: helper %q, pipeline %q\n' "$w" "$got" "$want"

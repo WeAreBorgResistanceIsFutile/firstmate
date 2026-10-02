@@ -27,6 +27,7 @@ mkdir -p "$HOME_DIR/config" "$LOG" "$NO_CURL_BIN"
 for command_name in bash chmod cp dirname jq mktemp rm; do
   ln -s "$(command -v "$command_name")" "$NO_CURL_BIN/$command_name"
 done
+fm_test_msys_dlls "$NO_CURL_BIN"
 
 cat > "$BRIEF" <<'MD'
 # Task

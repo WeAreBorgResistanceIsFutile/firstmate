@@ -94,13 +94,21 @@ test_hook_manager_cannot_displace_the_strip() {
   hooks="$TMP_ROOT/hooks-manager"
   "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
   target=$(with_hooks_env "$hooks" git -C "$repo" rev-parse --path-format=absolute --git-path hooks)
+  # Git for Windows prints the Windows spelling (C:/...) of an MSYS path.
+  if command -v cygpath >/dev/null 2>&1; then
+    target=$(cygpath -m "$target") hooks=$(cygpath -m "$hooks")
+  fi
   [ "$target" = "$hooks" ] || fail "a hook manager in the pane would resolve $target, not the strip dir $hooks"
-  mv "$target/commit-msg" "$target/commit-msg.old" 2>/dev/null &&
-    fail "a hook manager could rename the strip's commit-msg aside"
-  (printf '#!/bin/sh\nexit 0\n' >"$target/commit-msg") 2>/dev/null &&
-    fail "a hook manager could overwrite the strip's commit-msg"
-  (printf '#!/bin/sh\nexit 0\n' >"$target/post-update") 2>/dev/null &&
-    fail "a hook manager could add a hook to the strip dir"
+  if fm_test_readonly_dirs_supported; then
+    mv "$target/commit-msg" "$target/commit-msg.old" 2>/dev/null &&
+      fail "a hook manager could rename the strip's commit-msg aside"
+    (printf '#!/bin/sh\nexit 0\n' >"$target/commit-msg") 2>/dev/null &&
+      fail "a hook manager could overwrite the strip's commit-msg"
+    (printf '#!/bin/sh\nexit 0\n' >"$target/post-update") 2>/dev/null &&
+      fail "a hook manager could add a hook to the strip dir"
+  else
+    skip "read-only directories cannot be made on this host, so the strip dir's tamper refusal is unproven"
+  fi
   printf 'note\n' >>"$repo/README.md"
   git -C "$repo" add README.md
   with_hooks_env "$hooks" git -C "$repo" commit -q --trailer 'Co-authored-by: Cursor <cursoragent@cursor.com>' -m 'fix: after a manager tried'

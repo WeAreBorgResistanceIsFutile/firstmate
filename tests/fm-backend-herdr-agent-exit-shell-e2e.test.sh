@@ -195,12 +195,19 @@ lab pane run "$P_QUIT" '/quit' >/dev/null || fail 'could not send /quit'
 
 KILL_PID=$(lab pane process-info --pane "$P_KILL" | jq -r '
   .result.process_info.foreground_processes[]?
-  | select((.name // "") == "pi" or ((.argv0 // "") == "pi"))
+  | select((.name // "") == "pi" or ((.argv0 // "") == "pi")
+      or ((.cmdline // "") | test("pi-coding-agent.pi( |$)")))
   | .pid
 ' | head -1)
 [ -n "$KILL_PID" ] && [ "$KILL_PID" != null ] \
   || fail 'SIGKILL pane had no pi pid in process-info'
-kill -KILL "$KILL_PID" || fail "kill -KILL $KILL_PID failed"
+case "$(uname -s 2>/dev/null)" in
+  # On Windows the pane's Pi is a native cmd.exe running the npm shim under
+  # Volta, so its whole tree goes through taskkill; MSYS kill knows no such pid.
+  MINGW* | MSYS* | CYGWIN*)
+    taskkill //F //T //PID "$KILL_PID" >/dev/null || fail "taskkill $KILL_PID failed" ;;
+  *) kill -KILL "$KILL_PID" || fail "kill -KILL $KILL_PID failed" ;;
+esac
 
 wait_until "$P_QUIT" gone || fail '/quit pane never dropped off agent get'
 wait_until "$P_KILL" gone || fail 'SIGKILL pane never dropped off agent get'
