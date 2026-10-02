@@ -434,7 +434,8 @@ mirror_path_without() {
     for entry in "$bindir"/*; do
       [ -e "$entry" ] || continue
       name=${entry##*/}
-      [ "$name" = "$omit" ] && continue
+      # Git Bash resolves the tool through its .exe as well.
+      [ "${name%.exe}" = "$omit" ] && continue
       [ -e "$dir/$name" ] || ln -s "$entry" "$dir/$name" 2>/dev/null
     done
   done <<EOF

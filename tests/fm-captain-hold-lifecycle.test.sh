@@ -1467,6 +1467,10 @@ EOF
 
 test_secondmate_reconcile_publishes_before_request_retirement() {
   local parent mate channel evidence out show rc request
+  if ! fm_test_readonly_dirs_supported; then
+    skip "read-only directories cannot be made on this host, so a failed request retirement cannot be injected"
+    return 0
+  fi
   parent=$(make_home reconcile-parent-channel)
   mate=$(make_home reconcile-channel-mate)
   printf 'reconcile-channel-mate\n' > "$mate/.fm-secondmate-home"

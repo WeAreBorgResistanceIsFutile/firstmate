@@ -286,8 +286,10 @@ make_no_timeout_toolbin() {  # <dir> -> echoes toolbin path
   for tool in bash git grep sed head cut tail dirname perl; do
     real=$(command -v "$tool" || true)
     [ -n "$real" ] || fail "missing tool for no-timeout path: $tool"
-    ln -s "$real" "$tb/$tool"
+    fm_test_link_tool "$tb" "$tool" || fail "could not link $tool for the no-timeout path"
   done
+  # /usr/bin holds timeout, so its MSYS runtime DLLs come along instead.
+  fm_test_msys_dlls "$tb"
   printf '%s\n' "$tb"
 }
 
@@ -3121,7 +3123,7 @@ SH
   elapsed=$((SECONDS - start))
   assert_contains "$out" "state: working" "timed-out no-mistakes falls back to pane"
   assert_contains "$out" "source: pane" "timed-out no-mistakes -> pane source"
-  [ "$elapsed" -lt 5 ] || fail "perl timeout did not bound no-mistakes calls (elapsed ${elapsed}s)"
+  [ "$elapsed" -lt $((5 * FM_TEST_POLL_SCALE)) ] || fail "perl timeout did not bound no-mistakes calls (elapsed ${elapsed}s)"
   calls=$(awk 'END { print NR + 0 }' "$calls_file" 2>/dev/null || echo 0)
   [ "$calls" -eq 1 ] || fail "empty no-mistakes status triggered extra lookups ($calls calls)"
   pass "no timeout command uses perl bound"

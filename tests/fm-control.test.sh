@@ -874,6 +874,9 @@ test_interrupt_without_acknowledgement_preserves_busy_state() {
 
 test_muse_interrupt_confirms_adapter_acknowledgement() {
   local dir root log out rc
+  case "$(uname -s)" in
+    MSYS* | MINGW* | CYGWIN*) skip "muse harness unused on this host"; return 0 ;;
+  esac
   dir=$(new_case confirmed)
   add_task "$dir" t1 muse
   alive_as "$dir" muse

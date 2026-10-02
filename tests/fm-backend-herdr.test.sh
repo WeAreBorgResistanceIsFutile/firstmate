@@ -392,6 +392,7 @@ test_cli_helper_sets_env_and_appends_trailing_session_flag() {
 test_canonical_socket_path_converts_a_windows_drive_path() {
   local dir fb out
   dir="$TMP_ROOT/canonical-drive"; fb="$dir/bin"; mkdir -p "$fb"
+  # shellcheck disable=SC2016 # the fake script text, expanded when it runs
   printf '#!/usr/bin/env bash\n[ "$1" = -u ] && [ "$2" = "C:\\\\Users\\\\me\\\\herdr.sock" ] && printf "/c/Users/me/herdr.sock\\n"\n' > "$fb/cygpath"
   chmod +x "$fb/cygpath"
   out=$(PATH="$fb:$PATH" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_canonical_socket_path "C:\\Users\\me\\herdr.sock"' "$ROOT") \
@@ -406,6 +407,7 @@ test_lock_namespace_mode_check_is_skipped_only_on_windows_hosts() {
   local dir fb ns
   dir="$TMP_ROOT/lock-namespace-host"; fb="$dir/bin"; ns="$dir/ns"; mkdir -p "$fb" "$ns"
   chmod 755 "$ns"
+  # shellcheck disable=SC2016 # the fake script text, expanded when it runs
   printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$FAKE_UNAME"\n' > "$fb/uname"
   chmod +x "$fb/uname"
   PATH="$fb:$PATH" FAKE_UNAME=MINGW64_NT-10.0 bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_lock_namespace_valid "$1"' "$ROOT" "$ns" \

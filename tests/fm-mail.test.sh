@@ -961,6 +961,10 @@ test_poll_fails_closed_when_retry_clear_fails() {
   # published. A failed clear therefore leaves the wake in the queue while the
   # poll fails closed; later polls retry the clear without appending another wake.
   local fakebin homedir_bin out rc=0 test_home wakeq
+  if ! fm_test_unreadable_files_supported; then
+    skip "fm-mail: ${FUNCNAME[0]} needs an unwritable retry record, which this host cannot make"
+    return 0
+  fi
   fakebin=$(fm_fakebin "$TMP_ROOT")
   test_home="$TMP_ROOT/retry-clear-fail-home"
   homedir_bin="$test_home/bin"
@@ -1014,6 +1018,10 @@ test_poll_fails_closed_when_stale_retry_clear_fails() {
   # fail-closed: swallowing that failure would leave the uid eligible for a
   # duplicate recovery wake on the next poll.
   local fakebin homedir_bin out rc=0 test_home
+  if ! fm_test_unreadable_files_supported; then
+    skip "fm-mail: ${FUNCNAME[0]} needs an unwritable retry record, which this host cannot make"
+    return 0
+  fi
   fakebin=$(fm_fakebin "$TMP_ROOT")
   test_home="$TMP_ROOT/stale-retry-clear-fail-home"
   homedir_bin="$test_home/bin"
@@ -1698,7 +1706,7 @@ class FakeConn:
                 return ('NO', None)
             return ('OK', [(b'', b'Subject: recovered\r\nFrom: bob@x.com\r\n\r\n')])
     def logout(self):
-        os.kill(os.getpid(), signal.SIGKILL)
+        os.kill(os.getpid(), signal.SIGKILL) if hasattr(signal, "SIGKILL") else os._exit(137)
 import imaplib
 imaplib.IMAP4_SSL = lambda *a, **k: FakeConn()
 import importlib.util
@@ -1821,7 +1829,7 @@ spec.loader.exec_module(mod)
 orig = mod.save_retry_pos
 def save_then_kill(*a, **k):
     orig(*a, **k)
-    os.kill(os.getpid(), signal.SIGKILL)
+    os.kill(os.getpid(), signal.SIGKILL) if hasattr(signal, "SIGKILL") else os._exit(137)
 mod.save_retry_pos = save_then_kill
 sys.exit(mod.cmd_poll_list())
 PYEOF
@@ -1976,7 +1984,7 @@ class FakeConn:
     def logout(self):
         # Kill the process between the fetch decision and the emit/flush,
         # before the turn can be persisted.
-        os.kill(os.getpid(), signal.SIGKILL)
+        os.kill(os.getpid(), signal.SIGKILL) if hasattr(signal, "SIGKILL") else os._exit(137)
 import imaplib
 imaplib.IMAP4_SSL = lambda *a, **k: FakeConn()
 import importlib.util

@@ -686,7 +686,10 @@ EOF
       and .paths.report.present == true
   ' >/dev/null || fail "bold task did not join to override-backed backlog and report"
   view=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_DATA_OVERRIDE="$data" FM_PROJECTS_OVERRIDE="$projects" "$VIEW")
-  assert_contains "$view" "| bold-task | done / status-log | scout | alpha | tmux | present | $data/bold-task/report.md" \
+  # Git Bash hands native jq.exe its path arguments in C:/ form.
+  local shown_data=$data
+  command -v cygpath >/dev/null 2>&1 && shown_data=$(cygpath -m "$data")
+  assert_contains "$view" "| bold-task | done / status-log | scout | alpha | tmux | present | $shown_data/bold-task/report.md" \
     "view should render bold in-flight row from snapshot"
   assert_contains "$view" "| blocked-reason | Blocked Reason | beta | ship | queued-comma - waits on queued-comma | - |" \
     "view should render blocked reason without title metadata"

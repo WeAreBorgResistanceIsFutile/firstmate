@@ -118,6 +118,24 @@ fm_test_unreadable_files_supported() {
   [ "$FM_TEST_UNREADABLE_PROBE" = yes ]
 }
 
+# fm_test_private_modes_supported: true when `chmod 0600` really reads back as
+# 600. Git Bash mounts NTFS noacl, where every file reports 644, so a case that
+# asserts an owner-only mode checks this and reports a skip instead.
+fm_test_private_modes_supported() {
+  if [ -z "${FM_TEST_PRIVATE_MODE_PROBE:-}" ]; then
+    local probe
+    probe=$(mktemp) || return 1
+    chmod 0600 "$probe"
+    if [ "$(stat -c %a "$probe" 2>/dev/null || stat -f %Lp "$probe")" = 600 ]; then
+      FM_TEST_PRIVATE_MODE_PROBE=yes
+    else
+      FM_TEST_PRIVATE_MODE_PROBE=no
+    fi
+    rm -f -- "$probe"
+  fi
+  [ "$FM_TEST_PRIVATE_MODE_PROBE" = yes ]
+}
+
 # fm_test_readonly_dirs_supported: true when `chmod 0500` on a directory really
 # stops this process creating files in it. Git Bash ignores it on NTFS, so a
 # case that injects a write failure that way checks this and skips that step.
@@ -215,9 +233,9 @@ fm_test_isolated_path() {
 }
 
 # fm_test_msys_ps_shim <dir>: on Git Bash, MSYS and Cygwin, write <dir>/ps that
-# answers `ps -o comm=|args=|ppid= -p <pid>` (either order) from /proc and
-# passes every other form to the real ps. With FM_PROC_WINDOWS=0 this lets the
-# session-lock ancestry walk an all-MSYS fixture tree the way it walks a Linux
+# answers `ps -o comm=|args=|ppid=|pgid= -p <pid>` (either order) and
+# `ps -eo pid=,ppid=` from /proc and passes every other form to the real ps.
+# With FM_PROC_WINDOWS=0 this lets the session-lock ancestry walk an all-MSYS fixture tree the way it walks a Linux
 # one: like procps, comm is the invoked name (so a `claude` symlink to bash
 # reads as claude), capped at 15 characters. A no-op on other hosts.
 fm_test_msys_ps_shim() {
@@ -229,6 +247,13 @@ fm_test_msys_ps_shim() {
 #!/usr/bin/env bash
 field= pid=
 args=("\$@")
+# The descent walk lists every pid with its parent; MSYS ps has no -o.
+if [ "\$*" = '-eo pid=,ppid=' ]; then
+  for p in /proc/[0-9]*; do
+    read -r pp 2>/dev/null < "\$p/ppid" && printf '%s %s\n' "\${p#/proc/}" "\$pp"
+  done
+  exit 0
+fi
 while [ "\$#" -gt 0 ]; do
   case "\$1" in
     -o) field=\$2; shift 2 ;;
@@ -236,11 +261,12 @@ while [ "\$#" -gt 0 ]; do
     *) exec "$real" "\${args[@]}" ;;
   esac
 done
-case "\$field" in comm= | args= | ppid=) ;; *) exec "$real" "\${args[@]}" ;; esac
+case "\$field" in comm= | args= | ppid= | pgid=) ;; *) exec "$real" "\${args[@]}" ;; esac
 case "\$pid" in '' | *[!0-9]*) exit 1 ;; esac
 [ -r "/proc/\$pid/cmdline" ] || exit 1
 case "\$field" in
   ppid=) cat "/proc/\$pid/ppid" 2>/dev/null || exit 1 ;;
+  pgid=) cat "/proc/\$pid/pgid" 2>/dev/null || exit 1 ;;
   args=) tr '\0' ' ' < "/proc/\$pid/cmdline" | sed 's/ \$//'; echo ;;
   comm=) argv0=\$(tr '\0' '\n' < "/proc/\$pid/cmdline" | head -n 1); argv0=\${argv0##*/}; printf '%s\n' "\${argv0:0:15}" ;;
 esac
@@ -270,7 +296,7 @@ fm_test_fake_harness_setup() {
 case "$(uname -s 2>/dev/null)" in
   MINGW* | MSYS* | CYGWIN*)
     if [ "${FM_TEST_NATIVE_PROC:-0}" != 1 ]; then
-      FM_TEST_PS_SHIM_DIR="${TMPDIR:-/tmp}/fm-test-msys-ps-shim-v1"
+      FM_TEST_PS_SHIM_DIR="${TMPDIR:-/tmp}/fm-test-msys-ps-shim-v3"
       if [ ! -x "$FM_TEST_PS_SHIM_DIR/ps" ]; then
         fm_test_ps_shim_tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-msys-ps-shim.XXXXXX") \
           && fm_test_msys_ps_shim "$fm_test_ps_shim_tmp" \
@@ -287,6 +313,10 @@ case "$(uname -s 2>/dev/null)" in
     # A whole session start costs minutes of process starts there, so its
     # runtime bound is scaled unless a case sets its own.
     export FM_SESSION_START_TIMEOUT="${FM_SESSION_START_TIMEOUT:-$((120 * FM_TEST_POLL_SCALE))}"
+    # A process-event runner there claims in about 10s idle but past the 30s
+    # product default under a suite's load; a healthy launch still confirms on
+    # its first poll, so only a failing case spends the scaled window.
+    export FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS="${FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS:-$((30 * FM_TEST_POLL_SCALE))}"
     ;;
 esac
 

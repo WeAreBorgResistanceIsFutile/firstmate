@@ -257,6 +257,11 @@ test_a_later_session_may_reuse_an_entry_id() {
 # must leave the mirror as it was, print nothing, and let later dialog land.
 test_a_failed_append_leaves_the_mirror_valid() {
   local home
+  # Git Bash cannot lower the file-size limit that injects the failed write.
+  if ! (ulimit -f 1) 2>/dev/null; then
+    skip "no file-size limit on this host to fail an append with"
+    return 0
+  fi
   home=$(make_home failed-append)
   as_session "$home" "$SAY"'
     say captain "asked before the disk filled" p1
@@ -276,14 +281,15 @@ test_a_failed_append_leaves_the_mirror_valid() {
 }
 
 test_mirror_is_owner_only_under_an_open_umask() {
-  local home mirror
+  local home mirror modes=1
+  fm_test_private_modes_supported || { modes=0; skip "owner-only modes do not stick on this host; recording still checked"; }
   home=$(make_home private)
   mirror="$home/state/.host-mirror.jsonl"
   (umask 022; as_session "$home" "$SAY"'say captain "keep this between us" p1') || fail "a writer failed"
-  [ "$(mode_of "$mirror")" = 600 ] || fail "a new mirror must be owner-only, got $(mode_of "$mirror")"
+  [ "$modes" = 0 ] || [ "$(mode_of "$mirror")" = 600 ] || fail "a new mirror must be owner-only, got $(mode_of "$mirror")"
   chmod 644 "$mirror"
   (umask 022; as_session "$home" "$SAY"'say main "understood" p1') || fail "a writer failed"
-  [ "$(mode_of "$mirror")" = 600 ] || fail "an existing readable mirror must be owner-only after an append, got $(mode_of "$mirror")"
+  [ "$modes" = 0 ] || [ "$(mode_of "$mirror")" = 600 ] || fail "an existing readable mirror must be owner-only after an append, got $(mode_of "$mirror")"
   [ "$(entries "$home" | wc -l | tr -d ' ')" -eq 2 ] || fail "both entries must be recorded: $(entries "$home")"
   pass "mirror: the captain's dialog lands only in an owner-only mirror, even when the file already existed readable by others"
 }

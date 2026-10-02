@@ -105,7 +105,11 @@ write_mate_meta() {
 }
 
 run_reconcile() { # <home> [--startup]
-  local home=$1 option=${2:-}
+  local home=$1 option=${2:-} budget=${FM_INACTIVE_RECONCILE_BUDGET_SECS:-}
+  # A case expects one scan to visit every child; a Git Bash state read takes
+  # seconds, so there the scan gets the host's ceiling unless a case sets one.
+  [ -n "$budget" ] || [ "$FM_TEST_POLL_SCALE" = 1 ] || budget=90
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=$budget \
   PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
     FM_INACTIVE_RECONCILE_SECS=60 FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" \

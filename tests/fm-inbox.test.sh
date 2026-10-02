@@ -474,7 +474,15 @@ assert_equals "unknown" "$can" "unknown lock plus unknown consumer is not can_re
 home=$(make_home ready-holder)
 # A process whose ps comm is the harness name, so lock inspect and
 # fm-harness.sh ancestry both classify it without PATH tricks.
-perl -e '$0="claude"; sleep 60' &
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    # MSYS perl cannot rename its process, so sleep runs under the name.
+    mkdir -p "$TMP_ROOT/holder-bin"
+    ln -s "$(command -v sleep)" "$TMP_ROOT/holder-bin/claude"
+    "$TMP_ROOT/holder-bin/claude" 60 &
+    ;;
+  *) perl -e '$0="claude"; sleep 60' & ;;
+esac
 holder_pid=$!
 # Give ps a moment to report the renamed comm.
 sleep 0.2
