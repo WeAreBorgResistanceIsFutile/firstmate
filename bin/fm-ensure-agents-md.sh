@@ -88,7 +88,8 @@ ensure_maintenance_section() {
     return 0
   fi
   local eol=$'\n' sep=''
-  if LC_ALL=C grep -q $'\r$' "$AGENTS"; then
+  # -U keeps Git for Windows grep from stripping the CR it is looking for.
+  if LC_ALL=C grep -qU $'\r$' "$AGENTS"; then
     eol=$'\r\n'
   fi
   if [ -s "$AGENTS" ]; then

@@ -36,7 +36,8 @@
 # FM_INACTIVE_RECONCILE_SECS (default 900, valid 60..1800) per home, except
 # that --startup performs the same scan immediately in the locked session
 # start's deferred worker. Each scan uses an aggregate
-# FM_INACTIVE_RECONCILE_BUDGET_SECS deadline (default 10, valid 1..30) and
+# FM_INACTIVE_RECONCILE_BUDGET_SECS deadline (default 10, valid 1..30; on Git
+# Bash for Windows default 45, valid 1..90) and
 # resumes after its last visited child on the next scan.
 # The scan enforces that budget itself through a whole-second deadline, and the
 # first due child of every scan is always visited with at least a one-second
@@ -118,15 +119,22 @@ if [ "$FM_INACTIVE_RECONCILE_SECS" -lt 60 ] || [ "$FM_INACTIVE_RECONCILE_SECS" -
   printf 'fm-inactive-reconcile: FM_INACTIVE_RECONCILE_SECS must be a whole number from 60 to 1800\n' >&2
   exit 2
 fi
-FM_INACTIVE_RECONCILE_BUDGET_SECS=${FM_INACTIVE_RECONCILE_BUDGET_SECS:-10}
+# Git Bash on Windows pays tens of milliseconds per fork, so one child's state
+# read alone can take 8-33 seconds there; that host gets a larger default and
+# ceiling.
+budget_default=10 budget_max=30
+case "$(uname -s 2>/dev/null)" in
+  MINGW* | MSYS* | CYGWIN*) budget_default=45 budget_max=90 ;;
+esac
+FM_INACTIVE_RECONCILE_BUDGET_SECS=${FM_INACTIVE_RECONCILE_BUDGET_SECS:-$budget_default}
 case "$FM_INACTIVE_RECONCILE_BUDGET_SECS" in
   ''|*[!0-9]*|0)
-    printf 'fm-inactive-reconcile: FM_INACTIVE_RECONCILE_BUDGET_SECS must be a whole number from 1 to 30\n' >&2
+    printf 'fm-inactive-reconcile: FM_INACTIVE_RECONCILE_BUDGET_SECS must be a whole number from 1 to %s\n' "$budget_max" >&2
     exit 2
     ;;
 esac
-if [ "$FM_INACTIVE_RECONCILE_BUDGET_SECS" -gt 30 ]; then
-  printf 'fm-inactive-reconcile: FM_INACTIVE_RECONCILE_BUDGET_SECS must be a whole number from 1 to 30\n' >&2
+if [ "$FM_INACTIVE_RECONCILE_BUDGET_SECS" -gt "$budget_max" ]; then
+  printf 'fm-inactive-reconcile: FM_INACTIVE_RECONCILE_BUDGET_SECS must be a whole number from 1 to %s\n' "$budget_max" >&2
   exit 2
 fi
 

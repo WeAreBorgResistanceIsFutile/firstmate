@@ -157,7 +157,18 @@ apply_session_host() {  # <artifact>
     use warnings;
     my ($path, $artifact) = @ARGV;
     my $real = realpath($artifact) // die "cannot resolve board artifact\n";
+    # Git Bash: lavish-axi is a native program and keys its session on a
+    # Windows spelling of the artifact (either slash, any case), while this
+    # perl resolves an MSYS one.
+    my $windows = $^O eq "msys" || $^O eq "cygwin";
+    if ($windows) {
+      open(my $cygpath, "-|", "cygpath", "-m", $real) or die "cannot resolve board artifact\n";
+      chomp($real = <$cygpath> // "");
+      close($cygpath) && length($real) or die "cannot resolve board artifact\n";
+    }
     $real = decode("UTF-8", $real, FB_CROAK);
+    $real = lc $real if $windows;
+    my $key = sub { my $f = shift; return $f unless $windows; $f =~ tr{\\}{/}; return lc $f };
     open my $file, "<", $path or die "cannot read Lavish session store\n";
     -f $file or die "Lavish session store is not a regular file\n";
     local $/;
@@ -166,7 +177,7 @@ apply_session_host() {  # <artifact>
     ref($state) eq "HASH" && ref($state->{sessions}) eq "HASH"
       or die "invalid Lavish session store\n";
     my @sessions = grep {
-      ref($_) eq "HASH" && defined($_->{file}) && $_->{file} eq $real
+      ref($_) eq "HASH" && defined($_->{file}) && $key->($_->{file}) eq $real
     } values %{$state->{sessions}};
     @sessions == 1 or die "board must have one saved Lavish session\n";
     my $url = $sessions[0]->{url} // "";

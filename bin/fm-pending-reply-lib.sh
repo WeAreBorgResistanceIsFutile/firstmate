@@ -1016,6 +1016,19 @@ fm_pending_reply_send_recovery() {  # <state-dir> <corr_id>
 fm_pending_reply_pid_identity() {  # <pid>
   local pid=$1 identity
   case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  # Git Bash/MSYS ps has no -o. As in bin/fm-wake-lib.sh's fm_pid_identity,
+  # the /proc/<pid> directory's mtime is the start time Cygwin recorded once
+  # at creation, and the full cmdline keeps PID reuse a mismatch.
+  case "$(uname -s 2>/dev/null)" in
+    MINGW* | MSYS* | CYGWIN*)
+      local start cmdline_hex
+      start=$(stat -c %Y "/proc/$pid" 2>/dev/null) || return 1
+      cmdline_hex=$(od -An -v -tx1 "/proc/$pid/cmdline" 2>/dev/null | tr -d '[:space:]') || return 1
+      [ -n "$start" ] && [ -n "$cmdline_hex" ] || return 1
+      printf 'msys-starttime=%s cmdline-hex=%s' "$start" "$cmdline_hex"
+      return 0
+      ;;
+  esac
   identity=$(COLUMNS=10000 LC_ALL=C ps -p "$pid" -o lstart= -o command= 2>/dev/null) || return 1
   [ -n "$identity" ] || return 1
   printf '%s' "$identity"

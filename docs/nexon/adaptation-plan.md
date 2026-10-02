@@ -271,6 +271,20 @@ directory is gone instead of retrying forever - a watcher whose state
 directory was deleted mid-pass hung there for good (upstream has the same
 race, but a Linux pass is too short to hit it).
 
+Fixed in the product, 2026-10-02: Git for Windows' grep 3.0 strips a CR unless
+given `-U` (`fm-ensure-agents-md.sh`'s CRLF probe) and aborts on every `-iF`
+(`fm-dispatch-resolve.sh` folds case with `tr` instead); Git Bash collapses
+`\\`+letter in an argument to a native program, so jq filters avoid backslash
+escapes (`[[:space:]]` instead of `\\s`); `fm-pending-reply-lib.sh`'s sender
+identity reads `/proc` where `ps -o` is missing, so a missed report's recovery
+is sent at all; the Lavish board listener matches the session store's Windows
+spelling of the board path. The inactive-outcome scan budget defaults to 45 s
+(ceiling 90 s) on Git Bash, where one child's state read takes 8-33 s. Herdr
+lab sessions (`fm-herdr-lab.sh`) run with a lab-only config whose
+`terminal.default_shell` is Git Bash, plus an exported `PROMPT_COMMAND` for
+herdr's OSC 9;9 cwd tracking; the backend's shell switch skips a pane that is
+already Git Bash.
+
 Scope: only this fork's Windows setup is supported - the herdr backend, the
 claude, codex and pi harnesses, and local second mates - not everything
 firstmate supports on Linux and macOS. Upstream files stay as close to upstream
@@ -309,6 +323,13 @@ Known and not fixed:
   skip on this host. Likewise `chmod 0500` does not make a directory read-only,
   so `fm-procevent`'s three write-failure steps skip
   (`fm_test_readonly_dirs_supported`).
+- **No herdr push wake.** `bin/backends/herdr-eventwait.py` reads herdr's
+  `pane.agent_status_changed` stream over the session's Unix socket, and
+  Windows CPython has no `socket.AF_UNIX`. The subscriber returns "event path
+  unusable" and the watcher falls back to polling, so a worker blocked on the
+  captain is noticed at the stale-pane timer (about 4 minutes), not
+  sub-second. A reader in pwsh (.NET `UnixDomainSocketEndPoint`) would restore
+  it; `fm-backend-herdr-eventwait-smoke` is ignored until then.
 - **Other POSIX mode checks** outside `fm-pr-lib.sh` (`fm-bootstrap.sh`,
   `fm-fleet-snapshot.sh`, `fm-config-inherit-lib.sh`) still compare `stat -c %a`
   and will refuse on NTFS when their paths are reached.

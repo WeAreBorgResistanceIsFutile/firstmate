@@ -87,3 +87,6 @@ fm-calm-claude-mod # /calm display mod unused
 fm-calm-claude-mod-plugin # /calm display mod unused
 fm-calm-claude-mod-live-e2e # /calm display mod unused
 fm-extension-binding # third-party extension host unused; needs .sh spawn via bash and process-tree kill on win32
+
+# Supported features whose fast path cannot work on this host; the product falls back.
+fm-backend-herdr-eventwait-smoke # Windows CPython has no AF_UNIX, so the herdr push reader never connects; the watcher polls instead

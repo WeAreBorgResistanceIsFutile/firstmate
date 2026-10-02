@@ -281,6 +281,10 @@
       "audience": "public-product"
     },
     {
+      "path": "HANDOFF.md",
+      "audience": "maintainer-architecture"
+    },
+    {
       "path": "README.md",
       "audience": "public-product"
     },
@@ -389,8 +393,16 @@
       "audience": "maintainer-architecture"
     },
     {
+      "path": "docs/nexon/adaptation-plan.md",
+      "audience": "maintainer-architecture"
+    },
+    {
       "path": "docs/orca-backend.md",
       "audience": "operator-current"
+    },
+    {
+      "path": "nexon/windows-test-ignore.txt",
+      "audience": "maintainer-verification"
     },
     {
       "path": "docs/pi-supervision-branch.md",

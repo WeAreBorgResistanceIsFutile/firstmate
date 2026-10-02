@@ -3135,9 +3135,19 @@ fm_backend_herdr_windows_ps() {
 # FM_HERDR_WIN_BASH overrides the bash.exe (Windows path); the default is Git
 # for Windows' bin\bash.exe launcher, which sets up the MSYS PATH.
 fm_backend_herdr_windows_shell_prepare() {  # <target>
-  local bash_win rc_win cmd timeout_ms=${FM_HERDR_WIN_SHELL_TIMEOUT_MS:-20000}
+  local bash_win rc_win cmd timeout_ms=${FM_HERDR_WIN_SHELL_TIMEOUT_MS:-20000} shell_name='' tries=0
   fm_backend_herdr_is_windows || return 0
   fm_backend_herdr_target_ready "$1" || return 1
+  # A session whose default shell is already Git Bash (bin/fm-herdr-lab.sh's
+  # Windows lab) needs no switch, and would reject the PowerShell call below.
+  # A fresh pane may not report its shell yet, so wait briefly for one.
+  while [ -z "$shell_name" ] && [ "$tries" -lt 50 ]; do
+    shell_name=$(fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane process-info --pane "$FM_BACKEND_HERDR_PANE" 2>/dev/null |
+      jq -r '.result.process_info.foreground_processes[0].name // empty' 2>/dev/null)
+    [ -n "$shell_name" ] || sleep 0.1
+    tries=$((tries + 1))
+  done
+  [ "$shell_name" != bash.exe ] || return 0
   bash_win=${FM_HERDR_WIN_BASH:-$(cygpath -w / 2>/dev/null)\\bin\\bash.exe}
   rc_win=$(cygpath -w "$FM_BACKEND_HERDR_ROOT/bin/backends/herdr-win-bashrc.sh" 2>/dev/null) || {
     echo "error: could not resolve herdr-win-bashrc.sh as a Windows path" >&2

@@ -260,10 +260,11 @@ never_send_check() {
   { [ -f "$NEVER_SEND_PATH" ] && [ -r "$NEVER_SEND_PATH" ]; } \
     || never_send_off "$NEVER_SEND_PATH is not a readable regular file"
   # Collapse whitespace runs on both sides so a value the brief wraps across
-  # lines or spaces differently still matches
-  jq -r '.. | strings | gsub("\\s+"; " ")' <<<"$REQUEST" > "$SEND_TEXT" 2>/dev/null \
+  # lines or spaces differently still matches. A POSIX class, not \s: Git Bash
+  # hands jq.exe a doubled backslash before a letter as a single one.
+  jq -r '.. | strings | gsub("[[:space:]]+"; " ")' <<<"$REQUEST" > "$SEND_TEXT" 2>/dev/null \
     || never_send_off "could not extract the request text to check"
-  list=$(jq -Rr 'gsub("\\s+"; " ")' "$NEVER_SEND_PATH" 2>/dev/null) \
+  list=$(jq -Rr 'gsub("[[:space:]]+"; " ")' "$NEVER_SEND_PATH" 2>/dev/null) \
     || never_send_off "could not read $NEVER_SEND_PATH"
   while IFS= read -r value; do
     n=$((n + 1))
@@ -272,7 +273,9 @@ never_send_check() {
     case "$value" in
       ''|'#'*) continue ;;
     esac
-    grep -qiF -e "$value" "$SEND_TEXT" 2>/dev/null; rc=$?
+    # Fold case with tr rather than grep -iF, which aborts in Git for Windows.
+    value=$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')
+    tr '[:upper:]' '[:lower:]' < "$SEND_TEXT" | grep -qF -e "$value" 2>/dev/null; rc=$?
     case "$rc" in
       0) never_send_off "brief text matches $NEVER_SEND_PATH line $n" ;;
       1) ;;

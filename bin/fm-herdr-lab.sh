@@ -407,6 +407,36 @@ fm_herdr_lab_cancel_provision() { # <pid>
   wait "$pid" 2>/dev/null || true
 }
 
+fm_herdr_lab_is_windows() {
+  case "$(uname -s 2>/dev/null)" in
+    MINGW* | MSYS* | CYGWIN*) return 0 ;;
+  esac
+  return 1
+}
+
+fm_herdr_lab_config_path() { # <session>
+  printf '%s/%s.config.toml' "$(fm_herdr_lab_state_dir)" "$1"
+}
+
+# Nexon fork: herdr's Windows build opens every pane in PowerShell, while lab
+# tests type POSIX shell into raw panes. The lab server therefore runs with its
+# own config naming Git Bash as the default shell, and with an exported
+# PROMPT_COMMAND that emits the OSC 9;9 sequence herdr learns a pane's
+# directory from (herdr injects it only into its own PowerShell prompt).
+# FM_HERDR_WIN_BASH overrides the bash.exe, as in the herdr backend.
+fm_herdr_lab_windows_server() { # <session>
+  local name=$1 config bash_win
+  config=$(fm_herdr_lab_config_path "$name")
+  bash_win=${FM_HERDR_WIN_BASH:-$(cygpath -w / 2>/dev/null)\\bin\\bash.exe}
+  mkdir -p "$(fm_herdr_lab_state_dir)" || return 1
+  printf "onboarding = false\n[terminal]\ndefault_shell = '%s'\nshell_mode = 'non_login'\n" \
+    "$bash_win" >"$config" || return 1
+  # shellcheck disable=SC2016  # Expanded by each pane's bash, not here.
+  HERDR_CONFIG_PATH=$(cygpath -w "$config") \
+    PROMPT_COMMAND='printf "\033]9;9;%s\033\\" "$(cygpath -w "$PWD")"' \
+    fm_herdr_lab_raw "$name" server
+}
+
 fm_herdr_lab_provision() { # <session>
   local name=$1 sessions tripwire running attempt server_pid max_attempts timeout_seconds
   fm_herdr_lab_validate_name "$name" || return 1
@@ -434,7 +464,11 @@ fm_herdr_lab_provision() { # <session>
   else
     fm_herdr_lab_prepare "$name" || return 1
   fi
-  fm_herdr_lab_raw "$name" server >/dev/null 2>&1 &
+  if fm_herdr_lab_is_windows; then
+    fm_herdr_lab_windows_server "$name" >/dev/null 2>&1 &
+  else
+    fm_herdr_lab_raw "$name" server >/dev/null 2>&1 &
+  fi
   server_pid=$!
   attempt=0
   max_attempts=300
@@ -528,6 +562,7 @@ fm_herdr_lab_teardown() { # <session>
     fi
     return 1
   fi
+  rm -f "$(fm_herdr_lab_config_path "$name")"
   fm_herdr_lab_verify_tripwire "$name"
 }
 
