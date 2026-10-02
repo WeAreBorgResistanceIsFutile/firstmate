@@ -6,6 +6,8 @@ set -u
 # shellcheck source=tests/lib.sh
 # shellcheck disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# A watcher on a loaded Git Bash host takes ~30s to its first beat, so the
+# beat waits below scale past FM_TEST_POLL_SCALE alone.
 
 WRITER="$ROOT/bin/fm-home-summary-refresh.sh"
 SNAPSHOT="$ROOT/bin/fm-fleet-snapshot.sh"
@@ -138,7 +140,7 @@ PATH="$FAKEBIN:$PATH" \
   "$WATCH" > "$TMP_ROOT/watch.out" 2> "$TMP_ROOT/watch.err" &
 WATCH_PID=$!
 i=0
-while [ ! -e "$HOME_DIR/state/.last-watcher-beat" ] && [ "$i" -lt 100 ]; do
+while [ ! -e "$HOME_DIR/state/.last-watcher-beat" ] && [ "$i" -lt "$((100 * FM_TEST_POLL_SCALE * 2))" ]; do
   kill -0 "$WATCH_PID" 2>/dev/null || break
   sleep 0.05
   i=$((i + 1))
@@ -280,7 +282,7 @@ PATH="$FAKEBIN:$PATH" \
   "$WATCH" > "$TMP_ROOT/cadence-watch.out" 2> "$TMP_ROOT/cadence-watch.err" &
 WATCH_PID=$!
 i=0
-while [ ! -e "$CADENCE_HOME/state/.last-watcher-beat" ] && [ "$i" -lt 100 ]; do
+while [ ! -e "$CADENCE_HOME/state/.last-watcher-beat" ] && [ "$i" -lt "$((100 * FM_TEST_POLL_SCALE * 2))" ]; do
   kill -0 "$WATCH_PID" 2>/dev/null || break
   sleep 0.05
   i=$((i + 1))
@@ -770,7 +772,7 @@ PATH="$FAKEBIN:$PATH" \
   "$WATCH" > "$TMP_ROOT/beat-watch.out" 2> "$TMP_ROOT/beat-watch.err" &
 WATCH_PID=$!
 i=0
-while [ ! -e "$BEAT_HOME/state/.last-watcher-beat" ] && [ "$i" -lt 200 ]; do
+while [ ! -e "$BEAT_HOME/state/.last-watcher-beat" ] && [ "$i" -lt "$((200 * FM_TEST_POLL_SCALE * 2))" ]; do
   kill -0 "$WATCH_PID" 2>/dev/null || break
   sleep 0.05
   i=$((i + 1))
@@ -845,7 +847,7 @@ PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$RESTART_HOME" \
   "$WATCH" > "$TMP_ROOT/restart-watch-one.out" 2> "$TMP_ROOT/restart-watch-one.err" &
 WATCH_PID=$!
 i=0
-while [ ! -e "$RESTART_HOME/state/.last-watcher-beat" ] && [ "$i" -lt 100 ]; do
+while [ ! -e "$RESTART_HOME/state/.last-watcher-beat" ] && [ "$i" -lt "$((100 * FM_TEST_POLL_SCALE * 2))" ]; do
   kill -0 "$WATCH_PID" 2>/dev/null || break
   sleep 0.05
   i=$((i + 1))
@@ -870,7 +872,7 @@ PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$RESTART_HOME" \
   "$WATCH" > "$TMP_ROOT/restart-watch-two.out" 2> "$TMP_ROOT/restart-watch-two.err" &
 WATCH_PID=$!
 i=0
-while [ ! -e "$RESTART_HOME/state/.last-watcher-beat" ] && [ "$i" -lt 100 ]; do
+while [ ! -e "$RESTART_HOME/state/.last-watcher-beat" ] && [ "$i" -lt "$((100 * FM_TEST_POLL_SCALE * 2))" ]; do
   kill -0 "$WATCH_PID" 2>/dev/null || break
   sleep 0.05
   i=$((i + 1))
@@ -889,7 +891,7 @@ if ! kill -0 "$WATCH_PID" 2>/dev/null; then
     "$WATCH" > "$TMP_ROOT/restart-watch-three.out" 2> "$TMP_ROOT/restart-watch-three.err" &
   WATCH_PID=$!
   i=0
-  while [ ! -e "$RESTART_HOME/state/.last-watcher-beat" ] && [ "$i" -lt 100 ]; do
+  while [ ! -e "$RESTART_HOME/state/.last-watcher-beat" ] && [ "$i" -lt "$((100 * FM_TEST_POLL_SCALE * 2))" ]; do
     kill -0 "$WATCH_PID" 2>/dev/null || break
     sleep 0.05
     i=$((i + 1))
