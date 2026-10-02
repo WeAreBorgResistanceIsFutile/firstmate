@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # nexon/windows-tests.sh - run the firstmate test suites on the Windows (Git Bash)
-# setup, leaving out the suites nexon/windows-test-ignore.txt lists.
+# setup, leaving out the suites nexon/windows-test-ignore.txt lists and the single
+# cases nexon/windows-test-ignore-cases.txt lists.
 #
 # Usage: nexon/windows-tests.sh [-j N] [-o DIR] [suite-name ...]
 #   -j N    run N non-herdr suites at once (default 2); herdr suites always run
@@ -23,7 +24,7 @@ while getopts 'j:o:' opt; do
   case "$opt" in
     j) jobs=$OPTARG ;;
     o) out=$OPTARG ;;
-    *) sed -n '2,13p' "$0" >&2; exit 2 ;;
+    *) sed -n '2,14p' "$0" >&2; exit 2 ;;
   esac
 done
 shift $((OPTIND - 1))
@@ -33,7 +34,7 @@ mkdir -p "$out"
 if [ "$#" -gt 0 ]; then
   names=$(printf '%s\n' "$@")
 else
-  names=$(find "$ROOT/tests" -maxdepth 1 -name '*.test.sh' -printf '%f\n' | sed 's/\.test\.sh$//' | sort)
+  names=$(find "$ROOT/tests" -maxdepth 1 -name '*.test.sh' ! -name '.*' -printf '%f\n' | sed 's/\.test\.sh$//' | sort)
 fi
 ignored=$(sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$IGNORE" | grep -v '^$')
 names=$(printf '%s\n' "$names" | grep -vxF -e "$ignored")
@@ -49,10 +50,29 @@ for name in $names; do
 done
 
 run_one() {  # <root> <out> <name>
-  local start rc log="$2/$3.log"
+  local start rc=0 log="$2/$3.log" suite="tests/$3.test.sh" cases case
   start=$(date +%s)
-  (cd "$1" && timeout "${FM_WINDOWS_TEST_TIMEOUT:-3600}" bash "tests/$3.test.sh") >"$log" 2>&1
-  rc=$?
+  : >"$log"
+  # A case nexon/windows-test-ignore-cases.txt lists is dropped from a copy of
+  # the suite: only its bare call line goes, so the rest of the suite still runs.
+  cases=$(awk -v s="$3" '{ sub(/#.*/, "") } $1 == s { print $2 }' "$1/nexon/windows-test-ignore-cases.txt")
+  for case in $cases; do
+    if grep -qxF "$case" "$1/$suite"; then
+      echo "skip - $case (nexon/windows-test-ignore-cases.txt)" >>"$log"
+    else
+      echo "not ok - ignored case $case is not called in $suite" >>"$log"
+      rc=2
+    fi
+  done
+  if [ -n "$cases" ]; then
+    suite="tests/.windows-$3.test.sh"
+    grep -vxF -e "$cases" "$1/tests/$3.test.sh" >"$1/$suite"
+  fi
+  if [ "$rc" -eq 0 ]; then
+    (cd "$1" && timeout "${FM_WINDOWS_TEST_TIMEOUT:-3600}" bash "$suite") >>"$log" 2>&1
+    rc=$?
+  fi
+  [ -z "$cases" ] || rm -f "$1/$suite"
   printf '%s rc=%s secs=%s ok=%s skip=%s notok=%s\n' "$3" "$rc" "$(($(date +%s) - start))" \
     "$(grep -c '^ok' "$log")" "$(grep -c '^skip' "$log")" "$(grep -c '^not ok' "$log")" >>"$2/SUMMARY"
 }

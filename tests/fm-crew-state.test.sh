@@ -336,6 +336,9 @@ reset_fakes() {
   FM_FAKE_HERDR_AGENT_STATUS=""
   FM_FAKE_HERDR_PROCESS=agent
   FM_FAKE_HERDR_SHELL_PID=$$
+  # On Windows the adapter walks the Windows process table, so the pane shell
+  # is this script's Windows pid.
+  [ ! -r "/proc/$$/winpid" ] || FM_FAKE_HERDR_SHELL_PID=$(cat "/proc/$$/winpid")
   FM_FAKE_CI_LOGS=""
   FM_FAKE_DAEMON_DOWN=0
   FM_FAKE_DAEMON_TIMEOUT=0

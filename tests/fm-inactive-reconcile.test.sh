@@ -651,13 +651,13 @@ test_report_avoids_scan_meta_lock_inversion() {
   ' _ "$ROOT" "$WORLD" &
   holder=$!
   i=0
-  while [ "$i" -lt 40 ] && [ ! -e "$WORLD/meta-held" ]; do sleep 0.05; i=$((i + 1)); done
+  while [ "$i" -lt "$((40 * FM_TEST_POLL_SCALE))" ] && [ ! -e "$WORLD/meta-held" ]; do sleep 0.05; i=$((i + 1)); done
   [ -e "$WORLD/meta-held" ] || { reap "$holder"; fail "metadata lock holder did not start"; }
 
   FM_FAKE_CREW_STATE='unknown' run_reconcile "$MATE" --startup &
   scan_pid=$!
   i=0
-  while [ "$i" -lt 40 ] && [ ! -e "$MATE/state/.inactive-outcome-reconcile.lock" ]; do
+  while [ "$i" -lt "$((40 * FM_TEST_POLL_SCALE))" ] && [ ! -e "$MATE/state/.inactive-outcome-reconcile.lock" ]; do
     sleep 0.05
     i=$((i + 1))
   done
@@ -667,7 +667,7 @@ test_report_avoids_scan_meta_lock_inversion() {
   (run_report "$MATE" child && : > "$WORLD/report-complete") &
   report_pid=$!
   i=0
-  while [ "$i" -lt 40 ] && [ ! -e "$WORLD/report-complete" ]; do sleep 0.05; i=$((i + 1)); done
+  while [ "$i" -lt "$((40 * FM_TEST_POLL_SCALE))" ] && [ ! -e "$WORLD/report-complete" ]; do sleep 0.05; i=$((i + 1)); done
   [ -e "$WORLD/report-complete" ] && completed=1
   : > "$WORLD/release-meta"
   reap "$holder"

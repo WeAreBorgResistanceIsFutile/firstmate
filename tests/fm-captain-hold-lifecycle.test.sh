@@ -2016,47 +2016,55 @@ SH
   [ "$(printf '%s\n' "$show" | grep -c 'Captain hold reconciled:')" -eq 1 ] \
     || fail "reconcile note duplicated its durable annotation"
 
-  chmod 0500 "$home/state/reconcile-requests"
-  set +e
-  out=$(run_captain "$home" reconcile close sample-reconcile-close-retire \
-    --evidence-file "$home/close-retire-evidence.txt" 2>&1)
-  rc=$?
-  set -e
-  [ "$rc" -ne 0 ] || fail "a failed close request retirement reported success"
-  assert_contains "$out" "sample-reconcile-close-retire" \
-    "the close retirement failure did not name its task: $out"
-  list=$(run_captain "$home" reconcile list)
-  assert_contains "$list" "sample-reconcile-close-retire" \
-    "the failed close retirement hid its pending request"
-  chmod 0700 "$home/state/reconcile-requests"
+  # The retirement failures below are injected with a read-only request
+  # directory; where that cannot be made, only the successful retries run.
+  if fm_test_readonly_dirs_supported; then
+    chmod 0500 "$home/state/reconcile-requests"
+    set +e
+    out=$(run_captain "$home" reconcile close sample-reconcile-close-retire \
+      --evidence-file "$home/close-retire-evidence.txt" 2>&1)
+    rc=$?
+    set -e
+    [ "$rc" -ne 0 ] || fail "a failed close request retirement reported success"
+    assert_contains "$out" "sample-reconcile-close-retire" \
+      "the close retirement failure did not name its task: $out"
+    list=$(run_captain "$home" reconcile list)
+    assert_contains "$list" "sample-reconcile-close-retire" \
+      "the failed close retirement hid its pending request"
+    chmod 0700 "$home/state/reconcile-requests"
+  fi
   run_captain "$home" reconcile close sample-reconcile-close-retire \
     --evidence-file "$home/close-retire-evidence.txt" >/dev/null \
     || fail "the closed reconciliation could not finish request retirement"
 
-  chmod 0500 "$home/state/reconcile-requests"
-  set +e
-  out=$(run_captain "$home" answer sample-answer-retire \
-    --decision-file "$home/answer-retire.txt" 2>&1)
-  rc=$?
-  set -e
-  [ "$rc" -ne 0 ] || fail "a failed answer-boundary retirement reported success"
-  show=$(tasks_in "$home" show sample-answer-retire --full)
-  assert_contains "$show" "state: done" "retirement failure reversed the durable captain answer"
-  assert_contains "$show" "Captain answered despite retirement failure" \
-    "retirement failure lost the durable captain answer"
-  chmod 0700 "$home/state/reconcile-requests"
+  if fm_test_readonly_dirs_supported; then
+    chmod 0500 "$home/state/reconcile-requests"
+    set +e
+    out=$(run_captain "$home" answer sample-answer-retire \
+      --decision-file "$home/answer-retire.txt" 2>&1)
+    rc=$?
+    set -e
+    [ "$rc" -ne 0 ] || fail "a failed answer-boundary retirement reported success"
+    show=$(tasks_in "$home" show sample-answer-retire --full)
+    assert_contains "$show" "state: done" "retirement failure reversed the durable captain answer"
+    assert_contains "$show" "Captain answered despite retirement failure" \
+      "retirement failure lost the durable captain answer"
+    chmod 0700 "$home/state/reconcile-requests"
+  fi
   run_captain "$home" answer sample-answer-retire --decision-file "$home/answer-retire.txt" >/dev/null \
     || fail "the answer replay could not finish request retirement"
 
-  chmod 0500 "$home/state/reconcile-requests"
-  set +e
-  out=$(run_captain "$home" reconcile note sample-reconcile-retire-retry \
-    --note-file "$home/retry-retire-note.txt" 2>&1)
-  rc=$?
-  set -e
-  chmod 0700 "$home/state/reconcile-requests"
-  [ "$rc" -ne 0 ] || fail "a failed request retirement reported note success"
-  assert_not_contains "$out" "still-open:" "failed retirement reported a successful outcome"
+  if fm_test_readonly_dirs_supported; then
+    chmod 0500 "$home/state/reconcile-requests"
+    set +e
+    out=$(run_captain "$home" reconcile note sample-reconcile-retire-retry \
+      --note-file "$home/retry-retire-note.txt" 2>&1)
+    rc=$?
+    set -e
+    chmod 0700 "$home/state/reconcile-requests"
+    [ "$rc" -ne 0 ] || fail "a failed request retirement reported note success"
+    assert_not_contains "$out" "still-open:" "failed retirement reported a successful outcome"
+  fi
   run_captain "$home" reconcile note sample-reconcile-retire-retry \
     --note-file "$home/retry-retire-note.txt" >/dev/null \
     || fail "the applied note could not finish request retirement on retry"

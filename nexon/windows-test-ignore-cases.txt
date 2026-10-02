@@ -1,0 +1,9 @@
+# Single cases nexon/windows-tests.sh drops from a suite it otherwise runs.
+# One "<suite> <case-function>" per line, then " # " and the reason. Use this
+# when a suite mixes supported and unsupported cases: a failing case ends its
+# whole suite, so listing it keeps the rest of the suite in the run. The
+# runner refuses an entry whose case is no longer called in that suite.
+
+# Remote second mates are unused (local second mates only).
+fm-secondmate-reconcile test_bearings_request_returns_before_remote_delivery_and_supervision_sends_later # remote second mates unused
+fm-bearings-snapshot test_remote_ledgers_share_one_concurrent_budget_and_fall_back_to_cache # remote second mates unused
