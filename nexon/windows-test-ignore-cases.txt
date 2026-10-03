@@ -7,3 +7,4 @@
 # Remote second mates are unused (local second mates only).
 fm-secondmate-reconcile test_bearings_request_returns_before_remote_delivery_and_supervision_sends_later # remote second mates unused
 fm-bearings-snapshot test_remote_ledgers_share_one_concurrent_budget_and_fall_back_to_cache # remote second mates unused
+fm-bearings-snapshot test_landed_preserves_kindless_v1_summary_reports # remote second mates unused

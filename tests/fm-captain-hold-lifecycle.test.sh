@@ -3335,18 +3335,23 @@ test_pr_merge_entrypoint_separates_an_unreadable_record_from_an_absent_one() {
   write_origin_meta "$home" "$id" ship
 
   # A backlog that exists but cannot be read may hide a live captain hold, so
-  # the merge must refuse without reaching the forge.
-  chmod 000 "$home/data/backlog.md"
-  set +e
-  run_pr_merge "$home" "$id" "$pr" > "$home/missing-pr.out" 2> "$home/missing-pr.err"
-  rc=$?
-  set -e
-  chmod 644 "$home/data/backlog.md"
-  [ "$rc" -ne 0 ] || fail "the PR merge entrypoint accepted an unreadable captain-hold authority record"
-  assert_grep "could not determine whether task $id is still held for the captain" "$home/missing-pr.err" \
-    "the PR merge refusal did not name its unreadable authority record"
-  assert_no_grep 'pr merge 43 ' "$home/gh.log" \
-    "the PR merge entrypoint reached the forge without a readable authority record"
+  # the merge must refuse without reaching the forge. That half needs a host
+  # that can make an unreadable file.
+  if fm_test_unreadable_files_supported; then
+    chmod 000 "$home/data/backlog.md"
+    set +e
+    run_pr_merge "$home" "$id" "$pr" > "$home/missing-pr.out" 2> "$home/missing-pr.err"
+    rc=$?
+    set -e
+    chmod 644 "$home/data/backlog.md"
+    [ "$rc" -ne 0 ] || fail "the PR merge entrypoint accepted an unreadable captain-hold authority record"
+    assert_grep "could not determine whether task $id is still held for the captain" "$home/missing-pr.err" \
+      "the PR merge refusal did not name its unreadable authority record"
+    assert_no_grep 'pr merge 43 ' "$home/gh.log" \
+      "the PR merge entrypoint reached the forge without a readable authority record"
+  else
+    skip "fm-captain-hold-lifecycle: ${FUNCNAME[0]} unreadable half needs an unreadable file, which this host cannot make"
+  fi
 
   # A home with no backlog at all records no captain calls, so nothing can be
   # held and the merge proceeds.
@@ -3375,21 +3380,26 @@ test_local_merge_entrypoint_separates_an_unreadable_record_from_an_absent_one() 
     "spawn_gen=fixture-$id"
   before=$(git -C "$repo" rev-parse main)
 
-  # Unreadable authority record: refuse, and leave the default branch where it was.
-  chmod 000 "$home/data/backlog.md"
-  set +e
-  PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
-    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
-    FM_CONFIG_OVERRIDE="$home/config" "$ROOT/bin/fm-merge-local.sh" "$id" \
-    > "$home/missing-local.out" 2> "$home/missing-local.err"
-  rc=$?
-  set -e
-  chmod 644 "$home/data/backlog.md"
-  after=$(git -C "$repo" rev-parse main)
-  [ "$rc" -ne 0 ] || fail "the local merge entrypoint accepted an unreadable captain-hold authority record"
-  [ "$after" = "$before" ] || fail "the local merge entrypoint moved main without a readable authority record"
-  assert_grep "could not determine whether task $id is still held for the captain" "$home/missing-local.err" \
-    "the local merge refusal did not name its unreadable authority record"
+  # Unreadable authority record: refuse, and leave the default branch where it
+  # was. That half needs a host that can make an unreadable file.
+  if fm_test_unreadable_files_supported; then
+    chmod 000 "$home/data/backlog.md"
+    set +e
+    PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
+      FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+      FM_CONFIG_OVERRIDE="$home/config" "$ROOT/bin/fm-merge-local.sh" "$id" \
+      > "$home/missing-local.out" 2> "$home/missing-local.err"
+    rc=$?
+    set -e
+    chmod 644 "$home/data/backlog.md"
+    after=$(git -C "$repo" rev-parse main)
+    [ "$rc" -ne 0 ] || fail "the local merge entrypoint accepted an unreadable captain-hold authority record"
+    [ "$after" = "$before" ] || fail "the local merge entrypoint moved main without a readable authority record"
+    assert_grep "could not determine whether task $id is still held for the captain" "$home/missing-local.err" \
+      "the local merge refusal did not name its unreadable authority record"
+  else
+    skip "fm-captain-hold-lifecycle: ${FUNCNAME[0]} unreadable half needs an unreadable file, which this host cannot make"
+  fi
 
   # No backlog at all: nothing can be held, so the landing proceeds.
   rm "$home/data/backlog.md"

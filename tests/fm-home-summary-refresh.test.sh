@@ -8,6 +8,8 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 # A watcher on a loaded Git Bash host takes ~30s to its first beat, so the
 # beat waits below scale past FM_TEST_POLL_SCALE alone.
+# Every deliberate hang outlasts the scaled waits and inspection around it.
+export FM_TEST_HANG_SECS=$((30 * FM_TEST_POLL_SCALE))
 
 WRITER="$ROOT/bin/fm-home-summary-refresh.sh"
 SNAPSHOT="$ROOT/bin/fm-fleet-snapshot.sh"
@@ -358,7 +360,7 @@ SLOW_MARKER="$TMP_ROOT/slow-no-mistakes.pid"
 PATH="$FAKEBIN:$PATH" \
   FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" \
   FM_SNAPSHOT_NOW="$NOW_THREE" FM_SNAPSHOT_NOW_EPOCH="$EPOCH_THREE" \
-  FM_TEST_NM_MARKER="$SLOW_MARKER" FM_TEST_NM_SLEEP=30 \
+  FM_TEST_NM_MARKER="$SLOW_MARKER" FM_TEST_NM_SLEEP="$FM_TEST_HANG_SECS" \
   "$WRITER" > "$TMP_ROOT/killed-writer.out" 2> "$TMP_ROOT/killed-writer.err" &
 SLOW_WRITER_PID=$!
 i=0
@@ -452,13 +454,15 @@ grep -F 'summary producer failed' "$HOME_DIR/state/.home-summary-refresh.log" >/
   || fail "best-effort refresh did not log its failure"
 pass "best-effort publication logs and continues"
 
+# The bounded waits below allow 4-6s on a fast host; a loaded Git Bash host
+# needs FM_TEST_POLL_SCALE times that, and every hang outlasts its allowance.
 LOCK_MARKER="$TMP_ROOT/lock-held"
 rm -f "$HOME_DIR/state/.home-summary-refresh.log"
 FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" bash -c '
   . "$1/bin/fm-wake-lib.sh"
   fm_lock_acquire_wait "$2/state/.home-summary-refresh.lock"
   : > "$3"
-  sleep 30
+  sleep "$FM_TEST_HANG_SECS"
 ' _ "$ROOT" "$HOME_DIR" "$LOCK_MARKER" &
 LOCK_HOLDER_PID=$!
 i=0
@@ -473,7 +477,7 @@ PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" \
   FM_HOME_SUMMARY_TIMEOUT=1 "$WRITER" --best-effort \
   || fail "lock timeout changed the best-effort caller result"
 elapsed=$(( $(date +%s) - started ))
-[ "$elapsed" -lt 4 ] || fail "best-effort refresh waited $elapsed seconds on its lock"
+[ "$elapsed" -lt "$((4 * FM_TEST_POLL_SCALE))" ] || fail "best-effort refresh waited $elapsed seconds on its lock"
 PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" \
   FM_HOME_SUMMARY_TIMEOUT=1 "$WRITER" --best-effort \
   || fail "repeated lock timeout changed the best-effort caller result"
@@ -491,7 +495,7 @@ cat > "$HANGBIN/jq" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
   case "$arg" in
-    */.home-summary.json.*) sleep 30 ;;
+    */.home-summary.json.*) sleep "$FM_TEST_HANG_SECS" ;;
   esac
 done
 exec "$FM_TEST_REAL_JQ" "$@"
@@ -503,7 +507,7 @@ PATH="$HANGBIN:$FAKEBIN:$PATH" FM_TEST_REAL_JQ="$REAL_JQ" \
   "$WRITER" --best-effort \
   || fail "validation timeout changed the best-effort caller result"
 elapsed=$(( $(date +%s) - started ))
-[ "$elapsed" -lt 4 ] || fail "best-effort refresh waited $elapsed seconds on validation"
+[ "$elapsed" -lt "$((4 * FM_TEST_POLL_SCALE))" ] || fail "best-effort refresh waited $elapsed seconds on validation"
 grep -F 'refresh exceeded its 1-second deadline' \
   "$HOME_DIR/state/.home-summary-refresh.log" >/dev/null \
   || fail "publication validation timeout was not logged"
@@ -516,7 +520,7 @@ cat > "$MKBIN/mkdir" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
   if [ "$arg" = "$FM_TEST_STALLED_STATE" ]; then
-    sleep 30
+    sleep "$FM_TEST_HANG_SECS"
   fi
 done
 exec "$FM_TEST_REAL_MKDIR" "$@"
@@ -529,7 +533,7 @@ PATH="$MKBIN:$FAKEBIN:$PATH" FM_TEST_REAL_MKDIR="$REAL_MKDIR" \
   "$WRITER" --best-effort >/dev/null 2>"$TMP_ROOT/stalled-state.err" \
   || fail "state initialization timeout changed the best-effort caller result"
 elapsed=$(( $(date +%s) - started ))
-[ "$elapsed" -lt 6 ] \
+[ "$elapsed" -lt "$((6 * FM_TEST_POLL_SCALE))" ] \
   || fail "best-effort refresh waited $elapsed seconds before bounded state initialization"
 pass "best-effort refresh bounds state initialization"
 
@@ -560,7 +564,8 @@ rm -f "$SIGNAL_MARKER" "$HOME_DIR/state/.home-summary-refresh.log"
 mkdir "$HOME_DIR/state/.home-summary-refresh.log"
 if ! PATH="$SIGNALBIN:$FAKEBIN:$PATH" FM_TEST_REAL_ENV="$REAL_ENV" \
   FM_TEST_SIGNAL_MARKER="$SIGNAL_MARKER" FM_TIMEOUT_MECHANISM_OVERRIDE=bash \
-  FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" WRITER="$WRITER" python3 - <<'PY'
+  FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" WRITER="$WRITER" \
+  FM_TEST_BASH="$BASH" python3 - <<'PY'
 import os
 import subprocess
 import time
@@ -573,10 +578,14 @@ try:
 except BlockingIOError:
     pass
 os.set_blocking(write_fd, True)
+# A native Windows interpreter cannot execute a shell script directly.
+command = [os.environ["WRITER"], "--best-effort"]
+if os.name == "nt":
+    command.insert(0, os.environ["FM_TEST_BASH"])
 started = time.monotonic()
 try:
     result = subprocess.run(
-        [os.environ["WRITER"], "--best-effort"],
+        command,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=write_fd,
@@ -619,7 +628,10 @@ pass "valid publication ignores an unavailable failure record"
 # whole stream, so an ordinary long-lived home is the real input - not the
 # one-line log a freshly seeded fixture has. This home carries a status log of
 # realistic width and depth and must still publish inside a deadline well under
-# the default one.
+# the default one. A host that scales its waits has a 180-second default, and
+# gets half of it.
+COST_DEADLINE=30
+[ "$FM_TEST_POLL_SCALE" -eq 1 ] || COST_DEADLINE=90
 COST_HOME="$TMP_ROOT/cost-home"
 mkdir -p "$COST_HOME/state" "$COST_HOME/data" "$COST_HOME/config" \
   "$COST_HOME/projects/task"
@@ -656,10 +668,10 @@ with open(sys.argv[1], "w") as handle:
 PY
 PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$COST_HOME" \
   FM_SNAPSHOT_NOW="$NOW_ONE" FM_SNAPSHOT_NOW_EPOCH="$EPOCH_ONE" \
-  FM_HOME_SUMMARY_TIMEOUT=30 "$WRITER" --best-effort \
+  FM_HOME_SUMMARY_TIMEOUT="$COST_DEADLINE" "$WRITER" --best-effort \
   || fail "accumulated-home publication changed the best-effort caller result"
 [ -f "$COST_HOME/state/home-summary.json" ] \
-  || fail "an accumulated home did not publish within a 30-second deadline: $(cat "$COST_HOME/state/.home-summary-refresh.log" 2>/dev/null)"
+  || fail "an accumulated home did not publish within a $COST_DEADLINE-second deadline: $(cat "$COST_HOME/state/.home-summary-refresh.log" 2>/dev/null)"
 jq -e --arg home "$COST_HOME" '
   .schema == "fm-secondmate-home-summary.v1"
   and .home == $home

@@ -2442,6 +2442,10 @@ test_absent_backlog_still_merges() {
 
 test_unreadable_backlog_refuses_the_merge() {
   local case_dir rc
+  if ! fm_test_unreadable_files_supported; then
+    skip "fm-pr-merge: ${FUNCNAME[0]} needs an unreadable file, which this host cannot make"
+    return 0
+  fi
   case_dir=$(make_case unreadable-backlog-refuses)
   mkdir -p "$case_dir/wt"
   add_gh_mocks "$case_dir" 6262626262626262626262626262626262626262
@@ -2465,6 +2469,10 @@ test_unreadable_backlog_refuses_the_merge() {
 
 test_unreadable_backend_config_refuses_the_merge() {
   local case_dir rc
+  if ! fm_test_unreadable_files_supported; then
+    skip "fm-pr-merge: ${FUNCNAME[0]} needs an unreadable file, which this host cannot make"
+    return 0
+  fi
   case_dir=$(make_case unreadable-backend-config-refuses)
   mkdir -p "$case_dir/wt"
   add_gh_mocks "$case_dir" 6363636363636363636363636363636363636363
@@ -2489,6 +2497,10 @@ test_unreadable_backend_config_refuses_the_merge() {
 
 test_unreadable_user_backend_config_refuses_the_merge() {
   local case_dir rc user_config
+  if ! fm_test_unreadable_files_supported; then
+    skip "fm-pr-merge: ${FUNCNAME[0]} needs an unreadable file, which this host cannot make"
+    return 0
+  fi
   case_dir=$(make_case unreadable-user-backend-config-refuses)
   user_config="$case_dir/user-home/.tasks-axi/config.toml"
   mkdir -p "$case_dir/wt" "${user_config%/*}"
@@ -2516,6 +2528,10 @@ test_unreadable_user_backend_config_refuses_the_merge() {
 
 test_untraversable_user_backend_config_directory_refuses_the_merge() {
   local case_dir rc user_config
+  if ! fm_test_unreadable_files_supported; then
+    skip "fm-pr-merge: ${FUNCNAME[0]} needs an untraversable directory, which this host cannot make"
+    return 0
+  fi
   case_dir=$(make_case untraversable-user-backend-config-directory-refuses)
   user_config="$case_dir/user-home/.tasks-axi/config.toml"
   mkdir -p "$case_dir/wt" "${user_config%/*}"

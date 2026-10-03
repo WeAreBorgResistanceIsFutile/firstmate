@@ -948,28 +948,33 @@ EOF
 
 test_registry_unavailability_and_bounds_are_explicit() {
   local home fakebin json canonical id mate boundary
-  home=$(make_home registry-unavailable)
-  mate="$TMP_ROOT/registry-hidden"
-  make_valid_secondmate_home hidden "$mate"
-  printf -- '- hidden - fixture (home: %s; scope: fixture; projects: sample; added 2026-07-11)\n' "$mate" > "$home/data/secondmates.md"
-  fm_write_secondmate_meta "$home/state/hidden.meta" "$mate" "firstmate:fm-hidden" sample
-  chmod 000 "$home/data/secondmates.md"
-  fakebin=$(make_fakebin "$home")
-  canonical=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
-    "$ROOT/bin/fm-fleet-snapshot.sh" --json)
-  json=$(run "$home" "$fakebin" --json)
-  chmod 600 "$home/data/secondmates.md"
-  printf '%s' "$canonical" | jq -e '
-    .secondmate_current.registry.complete == false
-      and (.secondmate_current.records[] | select(.id == "hidden")
-        | .registered == null
-          and (.current.reason | contains("registration is unknown")))
-  ' >/dev/null || fail "unavailable registry produced false unregistered provenance: $canonical"
-  printf '%s' "$json" | jq -e '
-    (.secondmates | any(.[]; .id == "(registry)" and .state == "unknown"
-      and .provenance == "registered-table" and .freshness == "unavailable"))
-      and (.omitted | any(.surface | contains("secondmate registry unavailable")))
-  ' >/dev/null || fail "unreadable registry disappeared from bearings: $json"
+  # The unavailable-registry half needs a host that can make an unreadable file.
+  if fm_test_unreadable_files_supported; then
+    home=$(make_home registry-unavailable)
+    mate="$TMP_ROOT/registry-hidden"
+    make_valid_secondmate_home hidden "$mate"
+    printf -- '- hidden - fixture (home: %s; scope: fixture; projects: sample; added 2026-07-11)\n' "$mate" > "$home/data/secondmates.md"
+    fm_write_secondmate_meta "$home/state/hidden.meta" "$mate" "firstmate:fm-hidden" sample
+    chmod 000 "$home/data/secondmates.md"
+    fakebin=$(make_fakebin "$home")
+    canonical=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
+      "$ROOT/bin/fm-fleet-snapshot.sh" --json)
+    json=$(run "$home" "$fakebin" --json)
+    chmod 600 "$home/data/secondmates.md"
+    printf '%s' "$canonical" | jq -e '
+      .secondmate_current.registry.complete == false
+        and (.secondmate_current.records[] | select(.id == "hidden")
+          | .registered == null
+            and (.current.reason | contains("registration is unknown")))
+    ' >/dev/null || fail "unavailable registry produced false unregistered provenance: $canonical"
+    printf '%s' "$json" | jq -e '
+      (.secondmates | any(.[]; .id == "(registry)" and .state == "unknown"
+        and .provenance == "registered-table" and .freshness == "unavailable"))
+        and (.omitted | any(.surface | contains("secondmate registry unavailable")))
+    ' >/dev/null || fail "unreadable registry disappeared from bearings: $json"
+  else
+    skip "fm-bearings-snapshot: ${FUNCNAME[0]} unavailable-registry half needs an unreadable file, which this host cannot make"
+  fi
   home=$(make_home registry-bounds)
   : > "$home/data/secondmates.md"
   for id in one two three; do
@@ -2133,8 +2138,12 @@ test_captains_call_anti_leak() {
   fakebin=$(make_fakebin "$home")
   json=$(run "$home" "$fakebin" --json)
   canonical=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$ROOT/bin/fm-fleet-snapshot.sh" --json)
-  jq -n -e --argjson bearings "$json" --argjson canonical "$canonical" '
-    ([$bearings.decisions_open[].id] == ["mate/mate-decision-race"])
+  # Both documents travel on stdin: as arguments they exceed Windows' command-line limit.
+  printf '%s
+%s
+' "$json" "$canonical" | jq -s -e '
+    .[0] as $bearings | .[1] as $canonical
+    | ([$bearings.decisions_open[].id] == ["mate/mate-decision-race"])
       and ($canonical.secondmate_current.records[] | select(.id == "mate")
         | (.decisions_open | any(.source == "status"))
           and (.decisions_open | any(.source == "backlog")))

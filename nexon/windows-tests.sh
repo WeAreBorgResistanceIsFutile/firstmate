@@ -15,7 +15,15 @@
 #
 # FM_WINDOWS_TEST_TIMEOUT: seconds one suite may run before it is stopped
 # (default 3600); a few suites need longer on Git Bash.
+# FM_BACKLOG_ROW_TIMEOUT_SECS: the per-read backlog bound, 30 here instead of the
+# product's 10: one tasks-axi read takes about 1s on an idle host but passed 10s
+# with two long suites running at once. Suites that test the bound set their own.
+# FM_DIVERGENCE_TIMEOUT: the wake drain's captain-call divergence bound, 60 here
+# instead of the product's 20: the check takes about 5s on an idle host and
+# passed 20s with three suites running, which silently drops the section.
 set -u
+export FM_BACKLOG_ROW_TIMEOUT_SECS=${FM_BACKLOG_ROW_TIMEOUT_SECS:-30}
+export FM_DIVERGENCE_TIMEOUT=${FM_DIVERGENCE_TIMEOUT:-60}
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 IGNORE="$ROOT/nexon/windows-test-ignore.txt"
