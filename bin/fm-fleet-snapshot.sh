@@ -153,13 +153,13 @@ esac
 # Cross-home bounds are explicit so one broken or unexpectedly large home cannot
 # hang or explode the parent snapshot.
 # Git Bash, MSYS and Cygwin pay tens of milliseconds per fork, so one bounded
-# read there (a bash and its jq) can pass 2s on a loaded host, and a whole
-# fm-crew-state run, with several running at once, can pass 10s. The host is
+# read there (a bash and its jq calls) can pass 10s on a loaded host, and a
+# whole fm-crew-state run, with several running at once, can too. The host is
 # read from bash's own OSTYPE: it is host speed, not tool flavor, that matters.
 fm_snapshot_read_timeout=2
 fm_snapshot_crew_state_timeout=10
 case "${OSTYPE:-}" in
-  msys* | cygwin*) fm_snapshot_read_timeout=10 fm_snapshot_crew_state_timeout=30 ;;
+  msys* | cygwin*) fm_snapshot_read_timeout=30 fm_snapshot_crew_state_timeout=30 ;;
 esac
 FM_SNAPSHOT_SECONDMATES=${FM_SNAPSHOT_SECONDMATES:-20}
 FM_SNAPSHOT_CREW_STATE_TIMEOUT=${FM_SNAPSHOT_CREW_STATE_TIMEOUT:-$fm_snapshot_crew_state_timeout}

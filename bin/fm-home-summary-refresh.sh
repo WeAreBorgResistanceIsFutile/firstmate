@@ -16,8 +16,8 @@
 # A home-local refresh lock serializes concurrent triggers so an older in-flight
 # summary cannot overwrite one computed after a later status change. The shared
 # timeout owner bounds the complete refresh with FM_HOME_SUMMARY_TIMEOUT
-# (default 60 seconds). No reader can observe temporary output through the
-# ledger path.
+# (default 60 seconds, 180 on Git Bash, MSYS and Cygwin). No reader can
+# observe temporary output through the ledger path.
 #
 # With --best-effort, a failure is appended to the bounded home-local
 # state/.home-summary-refresh.log when available, with stderr as the bounded
@@ -38,7 +38,14 @@ LEDGER="$STATE/home-summary.json"
 ERROR_LOG="$STATE/.home-summary-refresh.log"
 REFRESH_LOCK="$STATE/.home-summary-refresh.lock"
 ERROR_LOG_MAX_BYTES=${FM_HOME_SUMMARY_ERROR_LOG_MAX_BYTES:-65536}
-HOME_SUMMARY_TIMEOUT=${FM_HOME_SUMMARY_TIMEOUT:-60}
+# Git Bash, MSYS and Cygwin pay tens of milliseconds per fork, so a home with
+# one live task takes close to 60s to summarize on a loaded host. The host is
+# read from bash's own OSTYPE: it is host speed, not tool flavor, that matters.
+home_summary_default_timeout=60
+case "${OSTYPE:-}" in
+  msys* | cygwin*) home_summary_default_timeout=180 ;;
+esac
+HOME_SUMMARY_TIMEOUT=${FM_HOME_SUMMARY_TIMEOUT:-$home_summary_default_timeout}
 HOME_SUMMARY_IF_IDLE=${FM_HOME_SUMMARY_IF_IDLE:-0}
 BEST_EFFORT=0
 HOME_SUMMARY_MODE=parent
@@ -71,7 +78,7 @@ case "$ERROR_LOG_MAX_BYTES" in
   ''|*[!0-9]*|0) ERROR_LOG_MAX_BYTES=65536 ;;
 esac
 case "$HOME_SUMMARY_TIMEOUT" in
-  ''|*[!0-9]*|0) HOME_SUMMARY_TIMEOUT=60 ;;
+  ''|*[!0-9]*|0) HOME_SUMMARY_TIMEOUT=$home_summary_default_timeout ;;
 esac
 case "$HOME_SUMMARY_IF_IDLE" in
   0|1) ;;
