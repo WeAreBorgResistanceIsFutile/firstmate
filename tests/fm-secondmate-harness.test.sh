@@ -1906,8 +1906,10 @@ test_config_reread_per_home_changed_sets_and_exact_bytes() {
   instr_b=$(reread_instruction_path "$w/beta") || fail "beta instruction missing after config push"
   assert_present "$instr_a" "alpha should receive a config-reread instruction file"
   assert_present "$instr_b" "beta should receive a config-reread instruction file"
-  [ "$(reread_mode "$instr_a")" = 600 ] || fail "alpha instruction is not private"
-  [ "$(reread_mode "$instr_b")" = 600 ] || fail "beta instruction is not private"
+  if fm_test_private_modes_supported; then
+    [ "$(reread_mode "$instr_a")" = 600 ] || fail "alpha instruction is not private"
+    [ "$(reread_mode "$instr_b")" = 600 ] || fail "beta instruction is not private"
+  fi
 
   # Deterministic allowlist path order and exact destination bytes for alpha
   # (allowlisted config items were missing/stale and therefore pushed).

@@ -588,7 +588,7 @@ write_parent_secondmate_event() {  # <parent> <id> <home> <note>
 }
 
 test_bad_secondmate_homes_never_revive_parent_work() {
-  local home fakebin missing invalid unreadable malformed unknown_child wt json
+  local home fakebin missing invalid unreadable malformed unknown_child wt json has_unreadable
   home=$(make_home bad-homes)
   : > "$home/data/secondmates.md"
   missing="$TMP_ROOT/missing-home"
@@ -604,10 +604,16 @@ test_bad_secondmate_homes_never_revive_parent_work() {
   append_secondmate_registry "$home" invalid "$invalid"
   write_parent_secondmate_event "$home" invalid "$invalid" "old invalid work"
 
-  make_valid_secondmate_home unreadable "$unreadable"
-  chmod 000 "$unreadable/data"
-  append_secondmate_registry "$home" unreadable "$unreadable"
-  write_parent_secondmate_event "$home" unreadable "$unreadable" "old unreadable work"
+  # An unreadable home needs a chmod 000 that sticks; where it does not, that
+  # home is left out and the other four still run.
+  has_unreadable=false
+  if fm_test_unreadable_files_supported; then
+    has_unreadable=true
+    make_valid_secondmate_home unreadable "$unreadable"
+    chmod 000 "$unreadable/data"
+    append_secondmate_registry "$home" unreadable "$unreadable"
+    write_parent_secondmate_event "$home" unreadable "$unreadable" "old unreadable work"
+  fi
 
   make_valid_secondmate_home malformed "$malformed"
   printf '## In flight\nthis current row is not structured\n' > "$malformed/data/backlog.md"
@@ -627,9 +633,9 @@ test_bad_secondmate_homes_never_revive_parent_work() {
 
   fakebin=$(make_fakebin "$home")
   json=$(run "$home" "$fakebin" --json)
-  chmod 700 "$unreadable/data"
-  printf '%s' "$json" | jq -e '
-    (.secondmates | length) == 5
+  [ "$has_unreadable" = false ] || chmod 700 "$unreadable/data"
+  printf '%s' "$json" | jq -e --argjson has_unreadable "$has_unreadable" '
+    (.secondmates | length) == (if $has_unreadable then 5 else 4 end)
       and all(.secondmates[]; .state == "unknown")
       and (.in_flight | map(.id) | all(. != "invalid" and . != "unreadable" and . != "malformed" and . != "unknown-child"))
       and (.secondmates | any(.[]; .id == "missing" and .provenance == "unknown"
@@ -639,7 +645,8 @@ test_bad_secondmate_homes_never_revive_parent_work() {
       and (.secondmates | any(.[]; .id == "unknown-child" and .provenance == "structured-home"
         and .freshness == "fresh"))
       and (.secondmates | any(.[]; .id == "invalid" and (.reason | contains("marked for"))))
-      and (.secondmates | any(.[]; .id == "unreadable" and (.reason | test("invalid home|unreadable"))))
+      and ($has_unreadable | not
+        or (.secondmates | any(.[]; .id == "unreadable" and (.reason | test("invalid home|unreadable")))))
       and (.secondmates | any(.[]; .id == "malformed" and (.reason | contains("unstructured current backlog row"))))
       and (.secondmates | any(.[]; .id == "unknown-child" and (.reason | contains("child current state unavailable"))))
       and ([.secondmate_reconcile[].id] == ["malformed", "unknown-child"])
