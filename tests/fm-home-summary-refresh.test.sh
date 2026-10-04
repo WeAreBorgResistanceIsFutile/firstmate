@@ -816,6 +816,9 @@ wait "$LOCK_HOLDER_PID" >/dev/null 2>&1 || true
 LOCK_HOLDER_PID=
 pass "a stalled publication does not delay the watcher liveness beacon"
 
+# A detached refresh must reach its lock check inside this deadline, which
+# takes a Git Bash host several seconds; the settle below outlasts it.
+RESTART_DEADLINE=$((2 * FM_TEST_POLL_SCALE))
 RESTART_HOME="$TMP_ROOT/restart-home"
 mkdir -p "$RESTART_HOME/state" "$RESTART_HOME/data" "$RESTART_HOME/config" \
   "$RESTART_HOME/projects/task"
@@ -843,8 +846,8 @@ FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$RESTART_HOME" bash -c '
   . "$1/bin/fm-wake-lib.sh"
   fm_lock_acquire_wait "$2/state/.home-summary-refresh.lock"
   : > "$3"
-  sleep 30
-' _ "$ROOT" "$RESTART_HOME" "$RESTART_LOCK_MARKER" &
+  sleep "$4"
+' _ "$ROOT" "$RESTART_HOME" "$RESTART_LOCK_MARKER" "$FM_TEST_HANG_SECS" &
 LOCK_HOLDER_PID=$!
 i=0
 while [ ! -e "$RESTART_LOCK_MARKER" ] && [ "$i" -lt 100 ]; do
@@ -854,7 +857,7 @@ while [ ! -e "$RESTART_LOCK_MARKER" ] && [ "$i" -lt 100 ]; do
 done
 [ -e "$RESTART_LOCK_MARKER" ] || fail "could not hold the publication lock for restart coverage"
 PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$RESTART_HOME" \
-  FM_POLL=1 FM_HOME_SUMMARY_INTERVAL=999999 FM_HOME_SUMMARY_TIMEOUT=2 \
+  FM_POLL=1 FM_HOME_SUMMARY_INTERVAL=999999 FM_HOME_SUMMARY_TIMEOUT="$RESTART_DEADLINE" \
   FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=9999999 FM_HEARTBEAT=9999999 \
   "$WATCH" > "$TMP_ROOT/restart-watch-one.out" 2> "$TMP_ROOT/restart-watch-one.err" &
 WATCH_PID=$!
@@ -869,7 +872,7 @@ done
 printf 'needs-decision [key=restart-gate]: restart the watcher\n' \
   > "$RESTART_HOME/state/restart-task.status"
 i=0
-while kill -0 "$WATCH_PID" 2>/dev/null && [ "$i" -lt 100 ]; do
+while kill -0 "$WATCH_PID" 2>/dev/null && [ "$i" -lt "$((100 * FM_TEST_POLL_SCALE * 2))" ]; do
   sleep 0.05
   i=$((i + 1))
 done
@@ -879,7 +882,7 @@ wait "$WATCH_PID" >/dev/null 2>&1 || true
 WATCH_PID=
 rm -f "$RESTART_HOME/state/.last-watcher-beat"
 PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$RESTART_HOME" \
-  FM_POLL=1 FM_HOME_SUMMARY_INTERVAL=999999 FM_HOME_SUMMARY_TIMEOUT=2 \
+  FM_POLL=1 FM_HOME_SUMMARY_INTERVAL=999999 FM_HOME_SUMMARY_TIMEOUT="$RESTART_DEADLINE" \
   FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=9999999 FM_HEARTBEAT=9999999 \
   "$WATCH" > "$TMP_ROOT/restart-watch-two.out" 2> "$TMP_ROOT/restart-watch-two.err" &
 WATCH_PID=$!
@@ -891,14 +894,14 @@ while [ ! -e "$RESTART_HOME/state/.last-watcher-beat" ] && [ "$i" -lt "$((100 * 
 done
 [ -e "$RESTART_HOME/state/.last-watcher-beat" ] \
   || fail "the replacement restart watcher did not begin polling"
-sleep 4
+sleep "$((2 * RESTART_DEADLINE))"
 [ ! -s "$RESTART_HOME/state/.home-summary-refresh.log" ] \
   || fail "watcher restart queued refreshes behind a live publication lock: $(cat "$RESTART_HOME/state/.home-summary-refresh.log")"
 if ! kill -0 "$WATCH_PID" 2>/dev/null; then
   wait "$WATCH_PID" >/dev/null 2>&1 || true
   rm -f "$RESTART_HOME/state/.last-watcher-beat"
   PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$RESTART_HOME" \
-    FM_POLL=1 FM_HOME_SUMMARY_INTERVAL=999999 FM_HOME_SUMMARY_TIMEOUT=2 \
+    FM_POLL=1 FM_HOME_SUMMARY_INTERVAL=999999 FM_HOME_SUMMARY_TIMEOUT="$RESTART_DEADLINE" \
     FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=9999999 FM_HEARTBEAT=9999999 \
     "$WATCH" > "$TMP_ROOT/restart-watch-three.out" 2> "$TMP_ROOT/restart-watch-three.err" &
   WATCH_PID=$!
@@ -918,7 +921,7 @@ PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$RESTART_HOME" \
   FM_HOME_SUMMARY_IF_IDLE=1 "$WRITER" --best-effort \
   || fail "stale-lock recovery changed the best-effort caller result"
 i=0
-while [ ! -e "$RESTART_HOME/state/home-summary.json" ] && [ "$i" -lt 200 ]; do
+while [ ! -e "$RESTART_HOME/state/home-summary.json" ] && [ "$i" -lt "$((200 * FM_TEST_POLL_SCALE))" ]; do
   sleep 0.05
   i=$((i + 1))
 done

@@ -55,7 +55,7 @@ SH
 #!/usr/bin/env bash
 echo "gh $*" >> "$NET_LOG"
 if [ "${FAKE_GH_FAIL:-0}" = 1 ]; then exit 1; fi
-if [ "${FAKE_GH_SLEEP:-0}" = 1 ]; then sleep 30; fi
+if [ "${FAKE_GH_SLEEP:-0}" = 1 ]; then sleep "${FAKE_GH_SLEEP_SECS:-30}"; fi
 if [ "${FAKE_GH_MANY:-0}" = 1 ]; then
   cat <<'JSON'
 [{"number":1,"title":"One","url":"https://github.com/acme/repo/pull/1","headRefName":"fm/one","reviewDecision":"","mergeable":"MERGEABLE","statusCheckRollup":[]},{"number":2,"title":"Two","url":"https://github.com/acme/repo/pull/2","headRefName":"fm/two","reviewDecision":"","mergeable":"MERGEABLE","statusCheckRollup":[]},{"number":3,"title":"Three","url":"https://github.com/acme/repo/pull/3","headRefName":"fm/three","reviewDecision":"","mergeable":"MERGEABLE","statusCheckRollup":[]}]
@@ -1482,23 +1482,27 @@ test_partial_github_failure_degrades() {
 }
 
 test_perl_fallback_bounds_github_call() {
-  local home fakebin toolbin cmd json started elapsed
+  local home fakebin toolbin cmd json started elapsed limit=10 stall=30
+  # A loaded Git Bash host spends over a minute on the view itself, so there
+  # the stall and the limit both grow and a missed bound still stands out.
+  if [ "$FM_TEST_POLL_SCALE" -gt 1 ]; then limit=180 stall=600; fi
   home=$(make_home perl-timeout); write_fixture "$home"
   fakebin=$(make_fakebin "$home")
   toolbin="$home/toolbin"
   mkdir -p "$toolbin"
   for cmd in bash dirname basename jq date sed git grep tail cut tr head sort wc perl sleep cat find mktemp rm mkdir chmod mv cp awk; do
-    ln -s "$(command -v "$cmd")" "$toolbin/$cmd"
+    fm_test_link_tool "$toolbin" "$cmd"
   done
   for cmd in shasum sha256sum; do
     command -v "$cmd" >/dev/null 2>&1 || continue
-    ln -s "$(command -v "$cmd")" "$toolbin/$cmd"
+    fm_test_link_tool "$toolbin" "$cmd"
   done
+  fm_test_msys_dlls "$toolbin"
   started=$(date +%s)
   json=$(PATH="$fakebin:$toolbin" FM_HOME="$home" FM_BEARINGS_NOW=2026-07-11T18:00:00Z \
-    FM_BEARINGS_PR_TIMEOUT=1 NET_LOG="$home/net.log" FAKE_GH_SLEEP=1 "$BEARINGS" --include-prs --json)
+    FM_BEARINGS_PR_TIMEOUT=1 NET_LOG="$home/net.log" FAKE_GH_SLEEP=1 FAKE_GH_SLEEP_SECS="$stall" "$BEARINGS" --include-prs --json)
   elapsed=$(( $(date +%s) - started ))
-  [ "$elapsed" -lt 10 ] || fail "Perl fallback did not bound a stalled gh call (${elapsed}s)"
+  [ "$elapsed" -lt "$limit" ] || fail "Perl fallback did not bound a stalled gh call (${elapsed}s)"
   printf '%s' "$json" | jq -e '.prs | test("unavailable")' >/dev/null \
     || fail "timed-out gh call did not fail soft: $json"
   pass "Perl fallback bounds stalled GitHub calls without coreutils timeout"

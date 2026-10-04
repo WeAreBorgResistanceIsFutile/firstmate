@@ -3420,7 +3420,7 @@ test_merge_entrypoints_validate_identity_and_state_before_locking() {
 
   pr_state="$home/missing-pr-state"
   set +e
-  fm_run_timed 2 env PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" \
+  fm_run_timed "$((2 * FM_TEST_POLL_SCALE))" env PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" \
     FM_HOME="$home" FM_STATE_OVERRIDE="$pr_state" \
     "$ROOT/bin/fm-pr-merge.sh" sample-missing-pr-state \
     https://github.com/sample/sample/pull/41 \
@@ -3437,7 +3437,7 @@ test_merge_entrypoints_validate_identity_and_state_before_locking() {
 
   local_state="$home/missing-local-state"
   set +e
-  fm_run_timed 2 env PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" \
+  fm_run_timed "$((2 * FM_TEST_POLL_SCALE))" env PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" \
     FM_HOME="$home" FM_STATE_OVERRIDE="$local_state" \
     "$ROOT/bin/fm-merge-local.sh" sample-missing-local-state \
     > "$home/missing-local-state.out" 2> "$home/missing-local-state.err"
@@ -3453,7 +3453,7 @@ test_merge_entrypoints_validate_identity_and_state_before_locking() {
 
   bad_id=sample/bad-local-id
   set +e
-  fm_run_timed 2 env PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" \
+  fm_run_timed "$((2 * FM_TEST_POLL_SCALE))" env PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" \
     FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
     "$ROOT/bin/fm-merge-local.sh" "$bad_id" \
     > "$home/bad-local-id.out" 2> "$home/bad-local-id.err"
